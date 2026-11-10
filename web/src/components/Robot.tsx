@@ -1,6 +1,8 @@
 // Original robot character. One base design, tinted per mission, with the five
 // expressions from vision Section 6.3: idle, damaged, struggling, repaired, celebrating.
 
+import { useId } from 'react'
+
 export type RobotMood = 'idle' | 'damaged' | 'struggling' | 'repaired' | 'celebrating'
 
 interface RobotProps {
@@ -21,6 +23,7 @@ export function Robot({ mood, hue, health = 100, size = 220, hit = 0, label }: R
   const eye = mood === 'repaired' || mood === 'celebrating' ? '#54E6A5' : mood === 'damaged' ? '#FF647C' : '#36D9F5'
   const bulb = health < 35 ? '#FF647C' : health < 70 ? '#FFCA70' : '#54E6A5'
   const gauge = Math.max(0, Math.min(100, health))
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
 
   return (
     <svg
@@ -41,6 +44,17 @@ export function Robot({ mood, hue, health = 100, size = 220, hit = 0, label }: R
           <stop offset="0%" stopColor={shellLight} />
           <stop offset="100%" stopColor={shell} />
         </linearGradient>
+        <linearGradient id={`${uid}-shade`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="45%" stopColor="#0B1020" stopOpacity="0" />
+          <stop offset="100%" stopColor="#0B1020" stopOpacity="0.35" />
+        </linearGradient>
+        <filter id={`${uid}-bloom`} x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="2.5" result="b" />
+          <feMerge>
+            <feMergeNode in="b" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
       </defs>
 
       <ellipse className="robot-shadow" cx="100" cy="210" rx="52" ry="7" fill="#000" opacity="0.35" />
@@ -48,7 +62,7 @@ export function Robot({ mood, hue, health = 100, size = 220, hit = 0, label }: R
       <g className="robot-body">
         {/* antenna */}
         <line x1="100" y1="32" x2="100" y2="14" stroke={shellDark} strokeWidth="4" strokeLinecap="round" />
-        <circle className="robot-bulb" cx="100" cy="11" r="7" fill={bulb} />
+        <circle className="robot-bulb" cx="100" cy="11" r="7" fill={bulb} filter={`url(#${uid}-bloom)`} />
         <circle cx="100" cy="11" r="14" fill={bulb} opacity="0.18" />
 
         {/* ears */}
@@ -57,9 +71,14 @@ export function Robot({ mood, hue, health = 100, size = 220, hit = 0, label }: R
 
         {/* head */}
         <rect x="38" y="30" width="124" height="92" rx="28" fill={`url(#shell-${hue})`} stroke={shellDark} strokeWidth="3" />
+        <rect x="38" y="30" width="124" height="92" rx="28" fill={`url(#${uid}-shade)`} />
+        <ellipse cx="66" cy="40" rx="20" ry="6" fill="#FFFFFF" opacity="0.5" transform="rotate(-12 66 40)" />
         <rect x="52" y="45" width="96" height="62" rx="18" fill="#0B1020" stroke={shellDark} strokeWidth="2" />
         <ellipse cx="100" cy="76" rx="44" ry="26" fill={`url(#glow-${hue})`} />
-        <Face mood={mood} eye={eye} />
+        <g filter={`url(#${uid}-bloom)`}>
+          <Face mood={mood} eye={eye} />
+        </g>
+        <path d="M60 52 L84 52 L66 100 L58 100 Z" fill="#FFFFFF" opacity="0.06" />
 
         {/* cracks appear as the robot gets more damaged */}
         {gauge < 60 && <path d="M140 34 l-8 12 l6 4 l-7 11" fill="none" stroke={shellDark} strokeWidth="2.5" strokeLinecap="round" />}
@@ -74,6 +93,8 @@ export function Robot({ mood, hue, health = 100, size = 220, hit = 0, label }: R
           <rect x="148" y="136" width="22" height="50" rx="11" fill={shell} stroke={shellDark} strokeWidth="3" />
         </g>
         <rect x="54" y="128" width="92" height="70" rx="20" fill={`url(#shell-${hue})`} stroke={shellDark} strokeWidth="3" />
+        <rect x="54" y="128" width="92" height="70" rx="20" fill={`url(#${uid}-shade)`} />
+        <ellipse cx="74" cy="137" rx="12" ry="4" fill="#FFFFFF" opacity="0.4" />
 
         {/* chest gauge: the robot's physical condition */}
         <rect x="70" y="146" width="60" height="12" rx="6" fill="#0B1020" />

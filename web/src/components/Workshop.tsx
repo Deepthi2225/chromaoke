@@ -9,7 +9,7 @@ const DAILY_GOAL = 3
 
 export function Workshop({ save, onSelect }: { save: SaveData; onSelect: (id: MissionId) => void }) {
   const rank = rankFor(save.xp)
-  const tip = recommendation(save.profile, save.history)
+  const tip = recommendation(save.profile, save.history, (id) => isUnlocked(save, MISSIONS.findIndex((m) => m.id === id)))
   const [today] = useState(() => new Date().toDateString())
   const repairsToday = save.history.filter((r) => r.repaired && new Date(r.at).toDateString() === today).length
   const last = save.history[save.history.length - 1]

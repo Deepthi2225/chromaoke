@@ -2,17 +2,27 @@
 // player's real session data. No LLM yet; when one is added it will phrase
 // these same facts, and never decide scores (Principle 4).
 
-import { CATEGORY_LABELS, topWeakness, weakBigrams, weakChars, type TypingProfile } from './analyzer'
+import { getMission, type MissionId } from '../data/missions'
+import { CATEGORY_LABELS, topWeakness, weakBigrams, weakChars, type TypingProfile, type WeaknessCategory } from './analyzer'
 import type { SessionRecord } from './storage'
 import type { SessionMetrics } from './typing'
 
-const ADVICE: Record<string, string> = {
-  characters: 'Slow down by about 10% and aim for zero corrections. Speed comes back once the fingers are sure.',
-  combinations: 'Run a Circuit Restoration mission: its long words are full of the letter pairs that slow you down.',
-  capitals: 'Use the Shift key on the opposite hand to the letter. Code Debugging and Emergency Shutdown drill this.',
-  symbols: 'Try Code Debugging at level 1. Look at the symbol before you reach for it instead of hunting.',
-  consistency: 'Aim for an even rhythm rather than bursts. Say each word in your head as you type it.',
-  endurance: 'Your accuracy fades late in a passage. Communication Override builds stamina; take a short break between runs.',
+/** A practice tip for each weakness, plus the mission that drills it (if any). */
+const ADVICE: Record<WeaknessCategory, { tip: string; mission?: MissionId; drill?: string }> = {
+  characters: { tip: 'Slow down by about 10% and aim for zero corrections. Speed comes back once the fingers are sure.' },
+  combinations: { tip: 'Type long words slowly and evenly.', mission: 'circuit', drill: 'its long words are full of the letter pairs that slow you down' },
+  capitals: { tip: 'Use the Shift key on the opposite hand to the letter.', mission: 'code', drill: 'its snippets are full of capitals' },
+  symbols: { tip: 'Look at the symbol before you reach for it instead of hunting.', mission: 'code', drill: 'start it at level 1' },
+  consistency: { tip: 'Aim for an even rhythm rather than bursts. Say each word in your head as you type it.' },
+  endurance: { tip: 'Your accuracy fades late in a passage; take a short break between runs.', mission: 'comms', drill: 'its long broadcasts build stamina' },
+}
+
+/** Only point the player at missions they can actually open. */
+function advice(weakness: WeaknessCategory, isUnlocked: (id: MissionId) => boolean): string {
+  const { tip, mission, drill } = ADVICE[weakness]
+  if (!mission) return tip
+  const name = getMission(mission).name
+  return isUnlocked(mission) ? `${tip} Try ${name}: ${drill}.` : `${tip} ${name} will drill this once you unlock it.`
 }
 
 export function sessionNotes(m: SessionMetrics, profile: TypingProfile): string[] {
@@ -30,7 +40,7 @@ export function sessionNotes(m: SessionMetrics, profile: TypingProfile): string[
   return notes.slice(0, 4)
 }
 
-export function recommendation(profile: TypingProfile, history: SessionRecord[]): { title: string; body: string } {
+export function recommendation(profile: TypingProfile, history: SessionRecord[], isUnlocked: (id: MissionId) => boolean): { title: string; body: string } {
   if (!history.length) {
     return { title: 'Welcome, technician', body: 'Start with Battery Recovery. After your first repair I will build your typing profile and tailor every mission to it.' }
   }
@@ -41,5 +51,5 @@ export function recommendation(profile: TypingProfile, history: SessionRecord[])
   if (!weakness) {
     return { title: 'Systems nominal', body: `Last ${recent.length} repair${recent.length === 1 ? '' : 's'}: ${avgWpm} WPM at ${avgAcc}% accuracy. No clear weak spot, so push a harder level.` }
   }
-  return { title: `Focus: ${CATEGORY_LABELS[weakness].toLowerCase()}`, body: `Last ${recent.length} repair${recent.length === 1 ? '' : 's'}: ${avgWpm} WPM at ${avgAcc}% accuracy. ${ADVICE[weakness]}` }
+  return { title: `Focus: ${CATEGORY_LABELS[weakness].toLowerCase()}`, body: `Last ${recent.length} repair${recent.length === 1 ? '' : 's'}: ${avgWpm} WPM at ${avgAcc}% accuracy. ${advice(weakness, isUnlocked)}` }
 }
