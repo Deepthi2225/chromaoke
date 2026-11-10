@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from 'react'
 import { MISSIONS, type Mission, type MissionId } from '../data/missions'
 import { recommendation } from '../engine/coach'
 import { isUnlocked, rankFor, type SaveData } from '../engine/storage'
+import { Workbench } from './Workbench'
 import { Robot } from './Robot'
 
 const DAILY_GOAL = 3
@@ -33,7 +34,7 @@ export function Workshop({ save, onSelect }: { save: SaveData; onSelect: (id: Mi
               </div>
             </div>
           </div>
-          <div className="hero-robot"><Robot mood={save.history.length ? 'repaired' : 'idle'} hue={190} size={190} label="R.O.B.I., your coach" /></div>
+          <div className="hero-robot"><Workbench mission="circuit" mode="demo" progress={0.55} width={400} label="Tek soldering a glowing circuit board" /></div>
         </div>
 
         <aside className="coach holo-panel">
@@ -72,7 +73,16 @@ function MissionCard({ mission, save, unlocked, onSelect }: { mission: Mission; 
   const progress = save.missions[mission.id]
   return (
     <button className={`mission-card holo-panel ${unlocked ? '' : 'locked'}`} disabled={!unlocked} onClick={() => onSelect(mission.id)} style={{ '--hue': mission.robot.hue } as CSSProperties}>
-      <div className="card-robot"><Robot mood={progress?.repairs ? 'repaired' : unlocked ? 'damaged' : 'idle'} hue={unlocked ? mission.robot.hue : 220} size={92} health={progress?.repairs ? 100 : 30} /></div>
+      <div className="card-robot">
+        <Workbench
+          mission={mission.id}
+          mode={!unlocked ? 'idle' : progress?.repairs ? 'celebrate' : 'demo'}
+          progress={progress?.repairs ? 1 : unlocked ? 0.4 : 0}
+          detail="card"
+          width={240}
+          label={`${mission.name} workbench`}
+        />
+      </div>
       <span className="card-num">0{mission.number}</span>
       <strong>{mission.name}</strong>
       <span className="card-tier">{mission.tier}</span>

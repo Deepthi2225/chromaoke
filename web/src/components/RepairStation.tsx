@@ -3,7 +3,8 @@ import type { Level, Mission } from '../data/missions'
 import { sfx } from '../engine/sound'
 import type { Settings } from '../engine/storage'
 import { computeMetrics, type Keystroke, type SessionMetrics } from '../engine/typing'
-import { Robot, type RobotMood } from './Robot'
+import { Workbench } from './Workbench'
+import type { RobotMood } from './Robot'
 
 export interface RepairResult {
   metrics: SessionMetrics
@@ -34,6 +35,7 @@ export function RepairStation({ mission, level, passage, settings, onFinish, onA
   const [finished, setFinished] = useState<null | boolean>(null)
   const [startTime, setStartTime] = useState<number | null>(null)
   const [keyCount, setKeyCount] = useState({ total: 0, correct: 0 })
+  const [lastEvent, setLastEvent] = useState<'hit' | 'slip'>('hit')
 
   const log = useRef<Keystroke[]>([])
   const startedAt = useRef<number | null>(null)
@@ -104,6 +106,7 @@ export function RepairStation({ mission, level, passage, settings, onFinish, onA
       setTyped(typedRef.current)
       setNow(t0)
       setKeyCount((c) => ({ total: c.total + 1, correct: c.correct + (correct ? 1 : 0) }))
+      setLastEvent(correct ? 'hit' : 'slip')
       if (correct) {
         setCombo((c) => c + 1)
         if (settings.sound) sfx.key()
@@ -141,7 +144,16 @@ export function RepairStation({ mission, level, passage, settings, onFinish, onA
       <div className="station-grid">
         <div className={`robot-bay holo-panel ${glitch && settings.glitchEffects ? 'glitching' : ''}`} key={`bay-${glitch}`}>
           <div className="bay-grid" aria-hidden />
-          <Robot mood={mood} hue={mission.robot.hue} health={finished === false ? Math.min(health, 30) : health} size={210} label={`${mission.robot.name} is ${mood}`} />
+          <Workbench
+            mission={mission.id}
+            mode={finished === true ? 'celebrate' : finished === false ? 'fail' : startTime ? 'weld' : 'scan'}
+            progress={correctPositions / passage.length}
+            hits={keyCount.correct}
+            slips={errors}
+            lastEvent={lastEvent}
+            width={380}
+            label={`Tek repairing ${mission.robot.name}'s part, ${Math.round((correctPositions / passage.length) * 100)}% restored; ${mission.robot.name} is ${mood}`}
+          />
           <div className="bay-readout">
             <div className="health-row">
               <span>CORE INTEGRITY</span>

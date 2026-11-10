@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Mission } from '../data/missions'
 import type { MissionProgress } from '../engine/storage'
-import { Robot } from './Robot'
+import { Workbench } from './Workbench'
 
 interface Props {
   mission: Mission
@@ -31,7 +31,7 @@ export function Briefing({ mission, progress, onStart, onBack }: Props) {
       <div className="briefing-grid">
         <div className="robot-bay holo-panel arrival">
           <div className="bay-grid" aria-hidden />
-          <Robot mood="damaged" hue={mission.robot.hue} health={25} size={230} label={`${mission.robot.name}, damaged`} />
+          <Workbench mission={mission.id} mode="scan" progress={0} width={460} label={`Tek scanning ${mission.robot.name}'s damaged part`} />
           <div className="bay-caption"><strong>{mission.robot.name}</strong><span>{mission.robot.role}</span></div>
         </div>
 
