@@ -10,9 +10,9 @@ A gamified typing platform where you are a technician repairing robots corrupted
 The Glitch. Every repair is a typing exercise, and a learning engine adapts future
 missions to your weaknesses.
 
-![The Workshop: your stats, R.O.B.I.'s advice, the robot collection and five repair missions](docs/screenshots/workshop.png)
+![The Workshop stage: stats as a hologram, R.O.B.I. as a drone, rescued robots in the recharge bay, and mission cartridges below](docs/screenshots/workshop.png)
 
-![The Repair Station: Tek solders a circuit board as you type, with live WPM, accuracy and combo](docs/screenshots/repair.png)
+![The Repair Station on the rainy rooftop: Tek realigns a satellite dish as you type, with live WPM, accuracy and combo](docs/screenshots/repair.png)
 
 This repository implements the first three phases of the project vision: a playable
 game with a real typing engine, performance reports and the core visual identity;
@@ -50,12 +50,21 @@ uvicorn main:app --reload --app-dir web/backend
 
 ## How it plays
 
-1. **Workshop**: your rank, XP, daily goal, robot collection, R.O.B.I.'s tip and the five missions.
+1. **Workshop**: a full-width scene of your repair facility. Your stats float as a hologram above a projector,
+   R.O.B.I. hovers as a drone with advice, rescued robots rest in the recharge bay, and the five missions are
+   cartridges in a console (locked ones are encrypted until you repair the one before).
 2. **Briefing**: Tek, the technician robot, scans the damaged part; read the diagnosis and pick a difficulty level.
-3. **Repair Station**: type the repair command while Tek repairs the part at the workbench. Correct keys throw
-   weld sparks and visibly repair the part (battery cells fill, circuit traces light up, code appears on the CRT,
-   the dish transmits, the reactor cools); mistakes make the tool slip, trigger a glitch and turn Tek's goggles
-   red. Combos build up, and the timer starts on your first key.
+3. **Repair Station**: type the repair command while Tek repairs the part. Correct keys throw weld sparks and
+   visibly repair it; mistakes make the tool slip, jolt the screen and turn Tek's goggles red. Combos build up,
+   and the timer starts on your first key. Each mission has its own location:
+
+   | Mission | Location | The repair |
+   |---|---|---|
+   | Battery Recovery | Underground power vault | Energy pulses down the lead, the crack seals, the charge fills |
+   | Circuit Restoration | Micro-fabrication cleanroom | Scorch marks fade, traces light up, current flows |
+   | Code Debugging | Mainframe server core | Corrupted hex rows clear until `SYS_STABLE / 0 ERRORS` |
+   | Communication Override | Rainy neon rooftop | The dish swings into alignment and fires a beacon skyward |
+   | Emergency Shutdown | Meltdown chamber | Pressure drops, cryo-foam bursts, the core cools and the alarms stop |
 4. **Report**: WPM, accuracy, consistency, burst speed, a speed timeline, R.O.B.I.'s notes and the adaptive
    engine's level decision. Stars and XP depend on WPM, accuracy and time left.
 5. **Performance Lab**: WPM and accuracy trends, typing behaviour profile, per-key error heatmap,
@@ -74,7 +83,10 @@ Keyboard: `Enter` starts/retries, `Esc` goes back or aborts, `Backspace` fixes e
 | `web/src/engine/storage.ts` | 12 | Guest save in localStorage: summaries only, never raw keystrokes |
 | `web/src/engine/api.ts` | 8 | API client: accounts, session upload, history deletion |
 | `web/src/data/missions.json` | 4 | The five missions, three levels each, original passages. Shared with the backend |
-| `web/src/components/Workbench.tsx` | 6.1–6.3 | The workshop scene: Tek, the 2089 city window, lighting, and each mission's part repairing as you type |
+| `web/src/components/Workbench.tsx` | 6.1–6.3 | The repair scene: Tek, the workshop, the recharge bay, sparks and effects |
+| `web/src/components/environments.tsx` | 4, 6.1 | The five mission locations, each with its own backdrop, work surface, lighting and particles |
+| `web/src/components/parts.tsx` | 4, 6.3 | The five mission parts and how each one visibly repairs as you type |
+| `web/src/components/Workshop.tsx` | 7 | The Workshop stage: stats hologram, R.O.B.I. drone, recharge bay and mission cartridges |
 | `web/src/components/Robot.tsx` | 6.3 | The rescued robots, with idle / damaged / struggling / repaired / celebrating expressions |
 | `web/public/favicon.svg` | 14 | The app icon (Tek's head), also used in the header and as the phone home-screen icon |
 | `web/src/App.css`, `web/src/index.css` | 6.2–6.4 | Palette tokens, holographic panels, glitch and circuit effects, reduce-motion mode |

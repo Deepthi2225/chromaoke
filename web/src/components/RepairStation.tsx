@@ -41,6 +41,7 @@ export function RepairStation({ mission, level, passage, settings, onFinish, onA
   const startedAt = useRef<number | null>(null)
   const typedRef = useRef('')
   const doneRef = useRef(false)
+  const stationRef = useRef<HTMLElement>(null)
 
   const elapsed = startTime ? now - startTime : 0
   const timeLeft = Math.max(0, level.timeLimit - Math.floor(elapsed / 1000))
@@ -113,6 +114,13 @@ export function RepairStation({ mission, level, passage, settings, onFinish, onA
       } else {
         setCombo(0)
         setErrors((e) => e + 1)
+        // A short screen jolt on mistakes; off with reduce-motion or glitch effects disabled.
+        if (settings.glitchEffects && !settings.reduceMotion) {
+          stationRef.current?.animate(
+            [{ transform: 'translate(0, 0)' }, { transform: 'translate(-4px, 2px)' }, { transform: 'translate(3px, -2px)' }, { transform: 'translate(0, 0)' }],
+            { duration: 150, easing: 'ease-out' },
+          )
+        }
         setLastError(t0)
         if (settings.glitchEffects) setGlitch((g) => g + 1)
         if (settings.sound) sfx.error()
@@ -121,7 +129,7 @@ export function RepairStation({ mission, level, passage, settings, onFinish, onA
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [finish, onAbort, passage, settings.glitchEffects, settings.sound])
+  }, [finish, onAbort, passage, settings.glitchEffects, settings.reduceMotion, settings.sound])
 
   const recentlyHit = now - lastError < 700
   const mood: RobotMood = finished === true ? 'celebrating' : finished === false ? 'damaged' : recentlyHit ? 'struggling' : health < 40 ? 'damaged' : 'idle'
@@ -129,7 +137,7 @@ export function RepairStation({ mission, level, passage, settings, onFinish, onA
   const progress = Math.round((typed.length / passage.length) * 100)
 
   return (
-    <section className={`station screen-enter ${finished === true ? 'is-repaired' : ''}`}>
+    <section ref={stationRef} className={`station screen-enter ${finished === true ? 'is-repaired' : ''}`}>
       <div className="station-head">
         <div>
           <p className="eyebrow cyan">MISSION 0{mission.number} · {mission.name.toUpperCase()} · LEVEL {level.level}</p>

@@ -9,8 +9,12 @@
 
 import { useId } from 'react'
 import type { MissionId } from '../data/missions'
+import { EnvBackdrop, EnvBench, EnvFront } from './environments'
+import { Part } from './parts'
+import { ENV_GRADE, MISSION_ENV, type BenchMode, type Env, type Id } from './sceneTypes'
 
-export type BenchMode = 'idle' | 'scan' | 'weld' | 'demo' | 'celebrate' | 'fail'
+export type { BenchMode, Env } from './sceneTypes'
+
 
 interface Props {
   mission: MissionId
@@ -23,10 +27,21 @@ interface Props {
   /** 'card' drops small decorative details for thumbnails. */
   detail?: 'full' | 'card'
   label?: string
+  /** Stage mode: widens the room with a hologram projector (left) and a robot recharge bay (right). */
+  wide?: boolean
+  /** Robots shown in the recharge bay (wide mode only). */
+  pods?: Pod[]
+  /** Where the repair happens; defaults to the mission's own location. */
+  env?: Env
+}
+
+export interface Pod {
+  name: string
+  hue: number
+  owned: boolean
 }
 
 type Point = { x: number; y: number }
-type Id = (name: string) => string
 
 // Where Tek's soldering iron touches, and where the other hand holds, per part.
 const RIG: Record<MissionId, { tip: Point; hold: Point }> = {
@@ -56,7 +71,7 @@ function elbow(shoulder: Point, hand: Point, upper: number, fore: number): Point
   return p1.y >= p2.y ? p1 : p2
 }
 
-export function Workbench({ mission, mode, progress, hits = 0, slips = 0, lastEvent = 'hit', width = 440, detail = 'full', label }: Props) {
+export function Workbench({ mission, mode, progress, hits = 0, slips = 0, lastEvent = 'hit', width = 440, detail = 'full', label, wide = false, pods = [], env: envProp }: Props) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const id: Id = (name) => `${uid}-${name}`
   const p = mode === 'celebrate' ? 1 : Math.max(0, Math.min(1, progress))
@@ -71,24 +86,27 @@ export function Workbench({ mission, mode, progress, hits = 0, slips = 0, lastEv
   const lElbow = elbow(LEFT_SHOULDER, leftHand, 80, 78)
   const armKey = mode === 'weld' ? `${hits}-${slips}` : mode
   const full = detail === 'full'
+  const env = envProp ?? MISSION_ENV[mission]
+  const look = env === 'workshop' ? null : ENV_GRADE[env]
 
   return (
     <svg
       className={`bench-scene bench-${mode} detail-${detail}`}
       width={width}
-      height={(width * 340) / 480}
-      viewBox="0 0 480 340"
+      height={(width * 340) / (wide ? 800 : 480)}
+      viewBox={wide ? '-160 0 800 340' : '0 0 480 340'}
       role="img"
       aria-label={label ?? 'A technician robot repairing a part at a workbench'}
     >
-      <Defs id={id} p={p} />
+      <Defs id={id} p={p} vignette={look?.vignette ?? '#05060F'} />
 
       {/* far layer, softly out of focus */}
       <g filter={`url(#${id('far')})`}>
-        <FarWall id={id} full={full} />
+        {env === 'workshop' ? <FarWall id={id} full={full} wide={wide} /> : <EnvBackdrop env={env} id={id} p={p} mode={mode} full={full} />}
       </g>
-      <Lamp id={id} />
-      {full && <Motes />}
+      {env === 'workshop' && <Lamp id={id} />}
+      {env === 'workshop' && full && <Motes />}
+      {wide && <PodBay id={id} pods={pods} />}
 
       {/* Tek's soft shadow on the wall, then Tek */}
       <ellipse cx={356} cy={170} rx={92} ry={86} fill="#04050C" opacity="0.45" filter={`url(#${id('soft')})`} />
@@ -97,9 +115,10 @@ export function Workbench({ mission, mode, progress, hits = 0, slips = 0, lastEv
         <Head id={id} mode={mode} slipping={slipping} />
       </g>
 
-      <Bench id={id} full={full} />
+      {env === 'workshop' ? <Bench id={id} full={full} wide={wide} /> : <EnvBench env={env} id={id} p={p} mode={mode} full={full} />}
+      {wide && <Projector id={id} />}
       <ellipse cx={204} cy={304} rx={92} ry={9} fill="#04050C" opacity="0.55" filter={`url(#${id('soft')})`} />
-      <Part mission={mission} p={p} id={id} mode={mode} slipping={slipping} />
+      <Part mission={mission} p={p} id={id} mode={mode} slipping={slipping} hits={hits} />
 
       {mode === 'scan' && (
         <g className="scan">
@@ -125,14 +144,18 @@ export function Workbench({ mission, mode, progress, hits = 0, slips = 0, lastEv
       )}
       {mode === 'fail' && <Smoke x={204} y={196} big />}
 
-      <rect width={480} height={340} fill={`url(#${id('vignette')})`} pointerEvents="none" />
+      {look && env !== 'workshop' && <EnvFront env={env} id={id} p={p} mode={mode} full={full} />}
+      {look && (
+        <rect width={480} height={340} fill={env === 'reactor' && mode === 'celebrate' ? '#7FD4FF' : look.grade} opacity={look.strength} style={{ mixBlendMode: 'soft-light' }} pointerEvents="none" className={env === 'reactor' && mode !== 'celebrate' ? 'grade-pulse' : ''} />
+      )}
+      <rect x={wide ? -160 : 0} width={wide ? 800 : 480} height={340} fill={`url(#${id('vignette')})`} pointerEvents="none" />
     </svg>
   )
 }
 
 /* ------------------------------------------------------------------ defs */
 
-function Defs({ id, p }: { id: Id; p: number }) {
+function Defs({ id, p, vignette }: { id: Id; p: number; vignette: string }) {
   const core = coreColor(p)
   return (
     <defs>
@@ -164,7 +187,7 @@ function Defs({ id, p }: { id: Id; p: number }) {
       </linearGradient>
       <radialGradient id={id('vignette')} cx="50%" cy="48%" r="70%">
         <stop offset="60%" stopColor="#05060F" stopOpacity="0" />
-        <stop offset="100%" stopColor="#05060F" stopOpacity="0.75" />
+        <stop offset="100%" stopColor={vignette} stopOpacity="0.75" />
       </radialGradient>
       <linearGradient id={id('cone')} x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stopColor="#FFD89A" stopOpacity="0.5" />
@@ -256,6 +279,15 @@ function Defs({ id, p }: { id: Id; p: number }) {
         <rect width="7" height="14" fill="#FFCA70" />
         <rect x="7" width="7" height="14" fill="#1B1F33" />
       </pattern>
+      <linearGradient id={id('beacon')} x1="0" y1="1" x2="0" y2="0">
+        <stop offset="0%" stopColor="#FFE3A3" stopOpacity="0.85" />
+        <stop offset="100%" stopColor="#7FF0FF" stopOpacity="0" />
+      </linearGradient>
+      <linearGradient id={id('frost')} x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#E8FBFF" stopOpacity="0.75" />
+        <stop offset="50%" stopColor="#BFEFFF" stopOpacity="0.25" />
+        <stop offset="100%" stopColor="#E8FBFF" stopOpacity="0.6" />
+      </linearGradient>
       <linearGradient id={id('dish')} x1="0" y1="0" x2="1" y2="1">
         <stop offset="0%" stopColor="#F2F5FB" />
         <stop offset="100%" stopColor="#7D89A6" />
@@ -273,13 +305,16 @@ const BUILDINGS: [number, number, number][] = [
   [22, 30, 70], [50, 22, 92], [70, 34, 58], [102, 18, 104], [118, 26, 80], [142, 30, 66], [170, 26, 88],
 ]
 
-function FarWall({ id, full }: { id: Id; full: boolean }) {
+function FarWall({ id, full, wide }: { id: Id; full: boolean; wide: boolean }) {
+  const x0 = wide ? -160 : 0
+  const x1 = wide ? 640 : 480
   return (
     <g>
-      <rect width={480} height={340} fill={`url(#${id('wall')})`} />
+      <rect x={x0} width={x1 - x0} height={340} fill={`url(#${id('wall')})`} />
+      {wide && <WideWall />}
       {/* wall panels */}
       <g stroke="#251E45" strokeWidth="2">
-        <line x1={0} x2={480} y1={168} y2={168} />
+        <line x1={x0} x2={x1} y1={168} y2={168} />
         <line x1={232} x2={232} y1={0} y2={168} />
         <line x1={398} x2={398} y1={0} y2={168} />
       </g>
@@ -310,7 +345,7 @@ function FarWall({ id, full }: { id: Id; full: boolean }) {
       <rect x={10} y={142} width={198} height={8} rx={2} fill="#2A2350" />
 
       {/* steam pipes */}
-      <rect x={210} y={4} width={270} height={9} rx={4} fill="#2C2650" />
+      <rect x={210} y={4} width={x1 - 210} height={9} rx={4} fill="#2C2650" />
       <rect x={262} y={1} width={8} height={15} rx={2} fill="#3B3468" />
       <rect x={420} y={1} width={8} height={15} rx={2} fill="#3B3468" />
 
@@ -375,16 +410,18 @@ function Motes() {
 
 /* ------------------------------------------------------------------- bench */
 
-function Bench({ id, full }: { id: Id; full: boolean }) {
+function Bench({ id, full, wide }: { id: Id; full: boolean; wide: boolean }) {
+  const x0 = wide ? -160 : 0
+  const x1 = wide ? 640 : 480
   return (
     <g>
-      <polygon points="0,246 480,246 480,340 0,340" fill={`url(#${id('wood')})`} />
+      <polygon points={`${x0},246 ${x1},246 ${x1},340 ${x0},340`} fill={`url(#${id('wood')})`} />
       <g stroke="#2A1A22" strokeOpacity="0.55" strokeWidth="1.5">
-        <line x1={0} x2={480} y1={268} y2={268} />
-        <line x1={0} x2={480} y1={296} y2={296} />
-        <line x1={0} x2={480} y1={326} y2={326} />
+        <line x1={x0} x2={x1} y1={268} y2={268} />
+        <line x1={x0} x2={x1} y1={296} y2={296} />
+        <line x1={x0} x2={x1} y1={326} y2={326} />
       </g>
-      <line x1={0} x2={480} y1={246.5} y2={246.5} stroke="#FFD89A" strokeOpacity="0.45" strokeWidth="2" />
+      <line x1={x0} x2={x1} y1={246.5} y2={246.5} stroke="#FFD89A" strokeOpacity="0.45" strokeWidth="2" />
       {/* work mat */}
       <polygon points="84,256 318,256 334,318 66,318" fill="#123E38" stroke="#2F8C76" strokeWidth="1.5" />
       <polygon points="84,256 318,256 334,318 66,318" fill={`url(#${id('matgrid')})`} />
@@ -423,6 +460,91 @@ function Clutter() {
     </g>
   )
 }
+
+/* ------------------------------------------------------- stage extensions */
+
+/** Left side of the wide room: a tool cabinet, a vent fan and a hanging cable. */
+function WideWall() {
+  return (
+    <g>
+      <rect x={-150} y={70} width={112} height={176} rx={6} fill="#1A1838" stroke="#2A2350" strokeWidth="2" />
+      {[0, 1, 2, 3].map((i) => (
+        <g key={i}>
+          <rect x={-142} y={80 + i * 40} width={96} height={32} rx={3} fill="#221F45" stroke="#2F2856" />
+          <rect x={-104} y={92 + i * 40} width={20} height={5} rx={2} fill="#4A4578" />
+        </g>
+      ))}
+      <circle cx={-96} cy={36} r={22} fill="#120F28" stroke="#2A2350" strokeWidth="4" />
+      <path d="M-96 36 l0 -17 a6 6 0 0 1 6 6z M-96 36 l17 0 a6 6 0 0 1 -6 6z M-96 36 l0 17 a6 6 0 0 1 -6 -6z M-96 36 l-17 0 a6 6 0 0 1 6 -6z" fill="#3B3468" className="fan" />
+      <path d="M-20 13 C -30 70 4 92 -8 150" fill="none" stroke="#2C2650" strokeWidth="3" />
+      <rect x={-160} y={4} width={370} height={9} rx={4} fill="#2C2650" />
+    </g>
+  )
+}
+
+/** Holographic projector on the bench; the stats hologram floats in its beam. */
+function Projector({ id }: { id: Id }) {
+  return (
+    <g className="projector">
+      <polygon points="-104,262 -86,262 -34,128 -156,128" fill="#36D9F5" opacity="0.13" filter={`url(#${id('haze')})`} className="holo-beam" />
+      <ellipse cx={-95} cy={292} rx={42} ry={6} fill="#04050C" opacity="0.5" filter={`url(#${id('soft')})`} />
+      <path d="M-130 290 L-124 270 H-66 L-60 290 Z" fill="#2A2F4C" stroke="#14172A" strokeWidth="2" />
+      <rect x={-112} y={262} width={34} height={9} rx={3} fill="#3A4060" />
+      <ellipse cx={-95} cy={262} rx={13} ry={3.5} fill="#7FF0FF" filter={`url(#${id('bloom')})`} className="holo-lens" />
+      {[0, 1, 2].map((i) => <circle key={i} cx={-118 + i * 8} cy={282} r={2} fill={i === 0 ? '#54E6A5' : '#36D9F5'} className="led" style={{ animationDelay: `${i * 0.4}s` }} />)}
+    </g>
+  )
+}
+
+/** Wall-mounted recharge bay: rescued robots glow in their tubes, the rest are blueprints. */
+function PodBay({ id, pods }: { id: Id; pods: Pod[] }) {
+  return (
+    <g className="pod-bay">
+      <rect x={480} y={104} width={156} height={148} rx={6} fill="#10132A" stroke="#2A3050" strokeWidth="2" />
+      <rect x={480} y={104} width={156} height={10} rx={3} fill="#1E2340" />
+      {pods.map((pod, i) => {
+        const x = 490 + i * 29
+        const cx = x + 12
+        const body = `hsl(${pod.hue} 55% 72%)`
+        return (
+          <g key={pod.name} className={`pod ${pod.owned ? 'owned' : 'empty'}`}>
+            <title>{pod.owned ? `${pod.name}: repaired` : 'Not repaired yet'}</title>
+            <rect x={x - 2} y={118} width={28} height={10} rx={3} fill={`url(#${id('metal')})`} />
+            <rect x={x} y={128} width={24} height={104} rx={11} fill="#060812" />
+            {pod.owned && <rect x={x + 2} y={130} width={20} height={100} rx={9} fill={`hsl(${pod.hue} 85% 60%)`} opacity="0.22" filter={`url(#${id('bloom')})`} />}
+            {pod.owned ? (
+              <g className="pod-bot" style={{ animationDelay: `${i * 0.45}s` }}>
+                <line x1={cx} y1={170} x2={cx} y2={164} stroke={body} strokeWidth="1.5" />
+                <circle cx={cx} cy={163} r={2} fill="#FFCA70" />
+                <rect x={cx - 9} y={170} width={18} height={15} rx={5} fill={body} />
+                <rect x={cx - 6} y={173} width={12} height={9} rx={3} fill="#0B1020" />
+                <g className="pod-eyes" style={{ animationDelay: `${i * 0.7}s` }}>
+                  <circle cx={cx - 2.8} cy={177.5} r={1.6} fill="#54E6A5" />
+                  <circle cx={cx + 2.8} cy={177.5} r={1.6} fill="#54E6A5" />
+                </g>
+                <rect x={cx - 7} y={187} width={14} height={14} rx={4} fill={body} />
+                <rect x={cx - 10} y={188} width={3} height={10} rx={1.5} fill={body} />
+                <rect x={cx + 7} y={188} width={3} height={10} rx={1.5} fill={body} />
+              </g>
+            ) : (
+              <g fill="none" stroke="#36D9F5" strokeOpacity="0.4" strokeWidth="1" strokeDasharray="2 2">
+                <rect x={cx - 9} y={170} width={18} height={15} rx={5} />
+                <rect x={cx - 7} y={187} width={14} height={14} rx={4} />
+                <line x1={cx} y1={170} x2={cx} y2={164} />
+              </g>
+            )}
+            {pod.owned && [0, 1].map((b) => <circle key={b} cx={cx - 5 + b * 9} cy={222} r={1.4} fill="#FFFFFF" opacity="0.6" className="bubble" style={{ animationDelay: `${i * 0.3 + b * 1.1}s` }} />)}
+            <rect x={x} y={128} width={24} height={104} rx={11} fill={`url(#${id('glass')})`} stroke="#4A5571" strokeWidth="1.5" />
+            <rect x={x + 3} y={134} width={4} height={90} rx={2} fill="#FFFFFF" opacity="0.22" />
+            <rect x={x - 2} y={230} width={28} height={14} rx={3} fill={`url(#${id('metal')})`} />
+            <circle cx={cx} cy={237} r={2.4} fill={pod.owned ? '#54E6A5' : '#5A2A38'} filter={pod.owned ? `url(#${id('bloom')})` : undefined} />
+          </g>
+        )
+      })}
+    </g>
+  )
+}
+
 
 /* --------------------------------------------------------------------- Tek */
 
@@ -538,152 +660,6 @@ function Iron({ from, to }: { from: Point; to: Point }) {
       <line x1={mid.x} y1={mid.y} x2={to.x} y2={to.y} stroke="#C9D2E6" strokeWidth="3.5" strokeLinecap="round" />
     </g>
   )
-}
-
-/* ------------------------------------------------------------------- parts */
-
-function Part({ mission, p, id, mode, slipping }: { mission: MissionId; p: number; id: Id; mode: BenchMode; slipping: boolean }) {
-  const bloom = `url(#${id('bloom')})`
-  switch (mission) {
-    case 'battery': {
-      const lit = Math.ceil(p * 5 - 0.001)
-      const color = p < 0.4 ? '#FF647C' : p < 0.75 ? '#FFCA70' : '#54E6A5'
-      return (
-        <g className="part">
-          {/* clip leads */}
-          <path d="M186 170 C 150 176 110 214 92 258" fill="none" stroke="#FF647C" strokeWidth="3.5" />
-          <path d="M218 170 C 262 168 270 210 300 256" fill="none" stroke="#2A2547" strokeWidth="3.5" />
-          <rect x={86} y={254} width={14} height={8} rx={2} fill="#FF647C" />
-          {/* cell */}
-          <rect x={160} y={168} width={86} height={130} rx={18} fill={`url(#${id('metal')})`} stroke="#252C44" strokeWidth="3" />
-          <rect x={160} y={186} width={86} height={14} fill="#A78BFA" opacity="0.55" />
-          <rect x={186} y={154} width={34} height={16} rx={5} fill="#9AA5BD" stroke="#252C44" strokeWidth="2" />
-          <path d="M198 162 h10 M203 157 v10" stroke="#252C44" strokeWidth="2.5" strokeLinecap="round" />
-          <rect x={176} y={206} width={54} height={78} rx={9} fill="#070B16" stroke="#252C44" strokeWidth="2" />
-          {[0, 1, 2, 3, 4].map((i) => (
-            <rect key={i} x={182} y={270 - i * 15} width={42} height={11} rx={3} fill={i < lit ? color : '#18213A'} filter={i < lit ? bloom : undefined} className={i < lit ? 'cell-on' : ''} />
-          ))}
-          {lit === 0 && <path d="M207 222 l-10 20 h10 l-6 18 l16 -24 h-10 l6 -14z" fill="#FF647C" filter={bloom} className="empty-bolt" />}
-          <rect x={166} y={176} width={8} height={110} rx={4} fill="#FFFFFF" opacity="0.25" />
-          <rect x={244} y={204} width={10} height={22} rx={2} fill="#14172A" stroke="#C9D2E6" strokeWidth="1.5" />
-          {(mode === 'weld' || mode === 'demo') && (
-            <path d="M190 152 l-8 -7 l6 -2 l-8 -9 M216 152 l8 -7 l-6 -2 l8 -9" fill="none" stroke="#9FF6FF" strokeWidth="2.2" filter={bloom} className="arc" />
-          )}
-        </g>
-      )
-    }
-    case 'circuit': {
-      const traces = ['M110 296 H146 L156 286', 'M188 282 H210', 'M238 288 H266 L278 300', 'M168 270 L178 262 H238', 'M250 268 H266 L274 280', 'M132 274 H150']
-      return (
-        <g className="part">
-          <polygon points="88,304 304,304 304,312 88,312" fill="#0E2E24" />
-          <polygon points="106,258 286,258 304,304 88,304" fill={`url(#${id('pcb')})`} stroke="#3AA383" strokeWidth="2" />
-          {[[112, 300], [296, 300], [116, 264], [278, 264]].map(([x, y]) => <circle key={`${x}`} cx={x} cy={y} r={3} fill="#0E2E24" stroke="#E0A84A" strokeWidth="1.5" />)}
-          {traces.map((d) => <path key={d} d={d} fill="none" stroke="#2E6E57" strokeWidth="3.2" strokeLinecap="round" />)}
-          {traces.map((d) => (
-            <path key={`lit-${d}`} d={d} pathLength={100} fill="none" stroke="#7FF0FF" strokeWidth="3.2" strokeLinecap="round" strokeDasharray={`${p * 100} 100`} filter={bloom} className="trace-lit" />
-          ))}
-          {/* chips with pins */}
-          {[[150, 272, 38, 20], [210, 276, 30, 22]].map(([x, y, w, h]) => (
-            <g key={x}>
-              {Array.from({ length: Math.floor(w / 6) }, (_, i) => (
-                <g key={i} stroke="#C9D2E6" strokeWidth="1.5">
-                  <line x1={x + 4 + i * 6} x2={x + 4 + i * 6} y1={y - 3} y2={y} />
-                  <line x1={x + 4 + i * 6} x2={x + 4 + i * 6} y1={y + h} y2={y + h + 3} />
-                </g>
-              ))}
-              <rect x={x} y={y} width={w} height={h} rx={2} fill="#151A26" stroke="#3A4560" />
-              <rect x={x + 3} y={y + 3} width={w * 0.4} height={2} fill="#5A6684" />
-            </g>
-          ))}
-          <rect x={250} y={240} width={12} height={22} rx={4} fill="#A78BFA" />
-          <ellipse cx={256} cy={240} rx={6} ry={2.5} fill="#D9CCFF" />
-          <rect x={128} y={248} width={10} height={18} rx={4} fill="#FFCA70" />
-          <ellipse cx={133} cy={248} rx={5} ry={2} fill="#FFE3A3" />
-          <g transform="translate(176 296)">
-            <rect width={18} height={6} rx={3} fill="#D7C39A" />
-            <rect x={4} width={2} height={6} fill="#FF647C" />
-            <rect x={9} width={2} height={6} fill="#14172A" />
-            <rect x={13} width={2} height={6} fill="#E0A84A" />
-          </g>
-          <circle cx={268} cy={292} r={4} fill={p > 0.95 ? '#54E6A5' : '#FF647C'} filter={bloom} className="status-led" />
-          {(mode === 'weld' || mode === 'demo') && <path d="M198 272 q-5 -10 0 -18 q5 -8 0 -16" fill="none" stroke="#E8E6F5" strokeOpacity="0.5" strokeWidth="2" className="steam" />}
-        </g>
-      )
-    }
-    case 'code': {
-      const lines = Math.floor(p * 7)
-      const widths = [72, 50, 82, 44, 66, 58, 76]
-      const colors = ['#54E6A5', '#7FF0FF', '#54E6A5', '#FFCA70', '#54E6A5', '#A78BFA', '#54E6A5']
-      return (
-        <g className="part">
-          {/* keyboard */}
-          <polygon points="150,300 254,300 262,312 142,312" fill="#BDB49A" stroke="#7E765E" />
-          {Array.from({ length: 9 }, (_, i) => <rect key={i} x={152 + i * 11} y={302} width={8} height={4} rx={1} fill="#8E8670" />)}
-          <rect x={180} y={280} width={46} height={16} rx={3} fill="#8E8670" />
-          {/* CRT */}
-          <rect x={136} y={164} width={134} height={120} rx={16} fill={`url(#${id('crt')})`} stroke="#6E6650" strokeWidth="3" />
-          <rect x={148} y={176} width={110} height={84} rx={12} fill={`url(#${id('screen')})`} stroke="#3B3628" strokeWidth="3" />
-          <g filter={bloom}>
-            {widths.slice(0, lines).map((w, i) => (
-              <rect key={i} x={158 + (i % 3 === 1 ? 8 : 0)} y={186 + i * 9.5} width={w} height={4} rx={1} fill={colors[i]} opacity={0.85} />
-            ))}
-            {lines < 7 && <rect x={158} y={186 + lines * 9.5} width={7} height={6} fill="#54E6A5" className="cursor" />}
-          </g>
-          <rect x={148} y={176} width={110} height={84} rx={12} fill={`url(#${id('scanlines')})`} />
-          {mode !== 'celebrate' && p < 1 && <rect x={148} y={176} width={110} height={84} rx={12} fill="#FF647C" opacity={slipping ? 0.38 : 0.05} className="crt-glitch" />}
-          <path d="M156 182 Q200 176 248 182" fill="none" stroke="#FFFFFF" strokeOpacity="0.18" strokeWidth="3" />
-          <circle cx={240} cy={272} r={4} fill="#8E8670" />
-          <circle cx={252} cy={272} r={4} fill="#8E8670" />
-          <circle cx={152} cy={272} r={3.5} fill={p > 0.95 ? '#54E6A5' : '#FFCA70'} filter={bloom} />
-          {/* open service hatch */}
-          <rect x={266} y={196} width={12} height={62} rx={2} fill="#3B3628" />
-          <path d="M270 210 q9 10 0 20 M270 236 q7 8 0 14" fill="none" stroke="#FF647C" strokeWidth="2" />
-        </g>
-      )
-    }
-    case 'comms': {
-      const lit = mode === 'celebrate' ? 4 : Math.floor(p * 4)
-      return (
-        <g className="part">
-          <rect x={148} y={262} width={110} height={40} rx={7} fill={`url(#${id('metal')})`} stroke="#252C44" strokeWidth="2" />
-          {[0, 1, 2].map((i) => <circle key={i} cx={164 + i * 13} cy={282} r={3.5} fill={i < lit ? '#54E6A5' : '#18213A'} filter={i < lit ? bloom : undefined} />)}
-          <g stroke="#363F58" strokeWidth="2">
-            {[0, 1, 2, 3].map((i) => <line key={i} x1={212 + i * 8} x2={212 + i * 8} y1={272} y2={292} />)}
-          </g>
-          <rect x={198} y={214} width={12} height={50} fill="#4A5571" />
-          <rect x={198} y={214} width={4} height={50} fill="#9AA5BD" opacity="0.5" />
-          <ellipse cx={204} cy={198} rx={48} ry={21} fill={`url(#${id('dish')})`} stroke="#5D6A88" strokeWidth="2" transform="rotate(25 204 198)" />
-          <ellipse cx={204} cy={198} rx={36} ry={14} fill="#AEB8CE" transform="rotate(25 204 198)" />
-          <line x1={204} y1={198} x2={174} y2={168} stroke="#4A5571" strokeWidth="3.5" />
-          <circle cx={174} cy={168} r={5} fill={lit ? '#7FF0FF' : '#6B7A99'} filter={lit ? bloom : undefined} />
-          {[14, 25, 36, 47].map((r, i) => (
-            <path key={r} d={`M${174 - r * 0.42} ${168 - r * 0.9} A ${r} ${r} 0 0 0 ${174 - r * 0.95} ${168 - r * 0.3}`} fill="none" stroke={i < lit ? '#7FF0FF' : '#2A3050'} strokeWidth="3.2" strokeLinecap="round" filter={i < lit ? bloom : undefined} className={i < lit ? 'wave-on' : ''} style={{ animationDelay: `${i * 0.15}s` }} />
-          ))}
-        </g>
-      )
-    }
-    case 'shutdown':
-      return (
-        <g className="part">
-          {/* coolant pipes */}
-          <path d="M168 214 H140 V292" fill="none" stroke="#4A5571" strokeWidth="7" />
-          <path d="M236 214 H262 V270" fill="none" stroke="#4A5571" strokeWidth="7" />
-          <rect x={148} y={270} width={110} height={30} rx={6} fill={`url(#${id('hazard')})`} stroke="#252C44" strokeWidth="2" />
-          <rect x={166} y={162} width={72} height={110} rx={32} fill="#070912" />
-          <rect x={184} y={180} width={36} height={76} rx={18} fill={`url(#${id('core')})`} filter={bloom} className={p < 0.5 ? 'core-hot' : 'core-cool'} />
-          <ellipse cx={202} cy={218} rx={14} ry={4} fill="none" stroke="#FFFFFF" strokeOpacity="0.6" strokeWidth="1.5" className="core-swirl" />
-          <rect x={166} y={162} width={72} height={110} rx={32} fill={`url(#${id('glass')})`} stroke="#7D89A6" strokeWidth="2" />
-          <rect x={174} y={172} width={8} height={88} rx={4} fill="#FFFFFF" opacity="0.28" />
-          <ellipse cx={202} cy={200} rx={38} ry={6} fill="none" stroke="#9AA5BD" strokeWidth="3.5" />
-          <ellipse cx={202} cy={242} rx={38} ry={6} fill="none" stroke="#9AA5BD" strokeWidth="3.5" />
-          <rect x={236} y={278} width={16} height={14} rx={2} fill="#14172A" stroke="#C9D2E6" />
-          {/* warning beacon */}
-          <rect x={194} y={150} width={16} height={12} rx={3} fill="#252C44" />
-          <circle cx={202} cy={150} r={6} fill={p < 0.5 && mode !== 'idle' ? '#FF647C' : '#54E6A5'} filter={bloom} className={p < 0.5 && mode !== 'idle' ? 'alarm' : ''} />
-        </g>
-      )
-  }
 }
 
 /* ----------------------------------------------------------------- effects */

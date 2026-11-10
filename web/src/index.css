@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 /* Colour palette from the vision document, Section 6.2 */
 :root {
@@ -15,8 +15,9 @@
   --ink-2: #a9b6cc;
   --ink-3: #6f7f9c;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --display: 'Chakra Petch', system-ui, sans-serif;
 
-  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-family: var(--display);
   color: var(--ink);
   background: var(--bg);
   color-scheme: dark;

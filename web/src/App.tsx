@@ -15,6 +15,9 @@ import { sfx } from './engine/sound'
 import { defaultSave, loadSave, rankFor, writeSave, type SaveData, type Settings } from './engine/storage'
 import { computeStars, computeXp } from './engine/typing'
 
+/** Drifting dust particles: [left %, top %, delay s]. */
+const DUST = [[8, 82, 0], [22, 64, 3], [37, 90, 6], [55, 75, 1.5], [68, 88, 8], [82, 70, 4.5], [93, 92, 10], [46, 58, 12]]
+
 type Screen =
   | { name: 'workshop' }
   | { name: 'lab' }
@@ -173,7 +176,10 @@ function App() {
 
   return (
     <div className={`app-shell ${save.settings.reduceMotion ? 'reduce-motion' : ''}`}>
-      <div className="backdrop" aria-hidden><div className="orb one" /><div className="orb two" /><div className="grid-floor" /></div>
+      <div className="backdrop" aria-hidden>
+        <div className="orb one" /><div className="orb two" /><div className="grid-floor" />
+        <div className="dust">{DUST.map(([left, top, delay], i) => <i key={i} style={{ left: `${left}%`, top: `${top}%`, animationDelay: `${delay}s` }} />)}</div>
+      </div>
 
       <header className="topbar">
         <button className="brand" onClick={goHome} disabled={inRepair}>

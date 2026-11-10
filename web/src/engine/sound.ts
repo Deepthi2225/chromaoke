@@ -28,4 +28,9 @@ export const sfx = {
   repaired: () => [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.22, 'triangle', 0.06, i * 0.09)),
   failed: () => [330, 262, 196].forEach((f, i) => tone(f, 0.25, 'sawtooth', 0.04, i * 0.12)),
   levelUp: () => [784, 988, 1175, 1568].forEach((f, i) => tone(f, 0.18, 'sine', 0.06, i * 0.07)),
+  /** Soft mechanical clack when a mission cartridge lifts out of its slot. */
+  hover: () => {
+    tone(220, 0.035, 'square', 0.025)
+    tone(1300, 0.02, 'triangle', 0.02, 0.025)
+  },
 }
