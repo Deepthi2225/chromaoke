@@ -1,12 +1,10 @@
-// Deterministic typing engine (vision Section 5.1 and Principle 4).
-// Scoring never depends on AI: every number here is computed from the
-// keystrokes the player typed against the target passage.
+// Typing metrics: every number here is computed from the keystrokes typed against the lyrics.
 
 export interface Keystroke {
   /** ms since the session started */
   t: number
   kind: 'char' | 'backspace'
-  /** Position in the passage the key was aimed at. */
+  /** Position in the lyrics the key was aimed at. */
   index: number
   expected?: string
   typed?: string
@@ -136,23 +134,4 @@ export function computeMetrics(log: Keystroke[], correctChars: number, endTime: 
     symbolAttempts,
     wpmTimeline: windowWpm.map(Math.round),
   }
-}
-
-/** Rewards depend on WPM, accuracy and completion time (vision Section 4). */
-export function computeXp(metrics: SessionMetrics, repaired: boolean, level: number, timeLeft: number): number {
-  if (!repaired) return Math.round(metrics.wpm * 0.5)
-  const base = 40 + level * 20
-  const speed = metrics.wpm * 1.5
-  const precision = Math.max(0, metrics.accuracy - 80) * 3
-  const timeBonus = timeLeft * 1.2
-  return Math.round(base + speed + precision + timeBonus)
-}
-
-/** Stars shown on the report and mission card. */
-export function computeStars(metrics: SessionMetrics, repaired: boolean, targetWpm: number): number {
-  if (!repaired) return 0
-  let stars = 1
-  if (metrics.accuracy >= 95) stars += 1
-  if (metrics.wpm >= targetWpm && metrics.accuracy >= 90) stars += 1
-  return stars
 }

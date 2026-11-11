@@ -32,23 +32,22 @@ export function AccountPanel({ username, onSignIn, onSignOut, onDeleteAccount, o
 
   if (username) {
     return (
-      <div className="account holo-panel" role="dialog" aria-label="Account">
-        <p className="eyebrow cyan">SIGNED IN</p>
+      <div className="account" role="dialog" aria-label="Account">
         <strong className="account-name">{username}</strong>
-        <p className="muted small">Your repairs, XP and typing profile are saved to your account.</p>
-        <div className="account-actions">
-          <button className="ghost-btn" onClick={onSignOut}>Sign out</button>
-          <button className="ghost-btn" onClick={onClose}>Close</button>
+        <p className="muted">Your results are saved to this account, and your full runs appear on song leaderboards.</p>
+        <div className="actions">
+          <button className="ghost" onClick={onSignOut}>Sign out</button>
+          <button className="ghost" onClick={onClose}>Back to home</button>
         </div>
         <div className="danger-zone">
           {confirmDelete ? (
             <>
               <span>Delete the account and all its data?</span>
-              <button className="danger-btn" onClick={() => onDeleteAccount().catch((e) => setError(e.message))}>Delete</button>
-              <button className="ghost-btn" onClick={() => setConfirmDelete(false)}>Cancel</button>
+              <button className="danger" onClick={() => onDeleteAccount().catch((e) => setError(e.message))}>Delete</button>
+              <button className="ghost" onClick={() => setConfirmDelete(false)}>Cancel</button>
             </>
           ) : (
-            <button className="link-btn" onClick={() => setConfirmDelete(true)}>Delete account</button>
+            <button className="link" onClick={() => setConfirmDelete(true)}>Delete account</button>
           )}
         </div>
         {error && <p className="form-error" role="alert">{error}</p>}
@@ -57,13 +56,13 @@ export function AccountPanel({ username, onSignIn, onSignOut, onDeleteAccount, o
   }
 
   return (
-    <form className="account holo-panel" role="dialog" aria-label={mode === 'login' ? 'Sign in' : 'Create account'} onSubmit={submit}>
+    <form className="account" role="dialog" aria-label={mode === 'login' ? 'Sign in' : 'Create account'} onSubmit={submit}>
       <div className="account-tabs" role="tablist">
         <button type="button" role="tab" aria-selected={mode === 'login'} className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>Sign in</button>
         <button type="button" role="tab" aria-selected={mode === 'register'} className={mode === 'register' ? 'active' : ''} onClick={() => setMode('register')}>Create account</button>
       </div>
       <label className="field">
-        <span>Technician name</span>
+        <span>Username</span>
         <input autoFocus autoComplete="username" value={name} onChange={(e) => setName(e.target.value)} pattern="[A-Za-z0-9_]{3,24}" title="3-24 letters, digits or underscores" required />
       </label>
       <label className="field">
@@ -71,11 +70,11 @@ export function AccountPanel({ username, onSignIn, onSignOut, onDeleteAccount, o
         <input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} required />
       </label>
       {error && <p className="form-error" role="alert">{error}</p>}
-      <button className="primary-btn" disabled={busy}>{busy ? 'CONNECTING…' : mode === 'login' ? 'SIGN IN' : 'CREATE ACCOUNT'}</button>
-      <p className="muted small">
-        {mode === 'register' ? 'A new account starts fresh. Guest progress stays on this device.' : 'Playing as a guest saves progress on this device only.'}
+      <button className="primary" disabled={busy}>{busy ? 'Working…' : mode === 'login' ? 'Sign in' : 'Create account'}</button>
+      <p className="muted">
+        {mode === 'register' ? 'A new account starts fresh. Guest history stays on this device.' : 'Without an account, history stays in this browser.'}
       </p>
-      <button type="button" className="link-btn" onClick={onClose}>Keep playing as guest</button>
+      <button type="button" className="link" onClick={onClose}>Continue without signing in</button>
     </form>
   )
 }

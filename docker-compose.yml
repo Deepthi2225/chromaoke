@@ -1,22 +1,22 @@
-# PostgreSQL for Robot Repair (vision Section 8).
+# PostgreSQL for Chromaoke.
 #   docker compose up -d
-#   set DATABASE_URL=postgresql+psycopg://robot:robot@localhost:5432/robot_repair
+#   set DATABASE_URL=postgresql+psycopg://lyrics:lyrics@localhost:5432/lyric_typer
 #   uvicorn main:app --reload --app-dir web/backend
 services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: robot
-      POSTGRES_PASSWORD: robot   # local development only
-      POSTGRES_DB: robot_repair
+      POSTGRES_USER: lyrics
+      POSTGRES_PASSWORD: lyrics   # local development only
+      POSTGRES_DB: lyric_typer
     ports:
       - "5432:5432"
     volumes:
-      - robot_repair_data:/var/lib/postgresql/data
+      - lyric_typer_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U robot -d robot_repair"]
+      test: ["CMD-SHELL", "pg_isready -U lyrics -d lyric_typer"]
       interval: 5s
       retries: 10
 
 volumes:
-  robot_repair_data:
+  lyric_typer_data:
