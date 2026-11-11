@@ -1,8 +1,10 @@
-<p align="center">
-  <img src="web/public/favicon.svg" width="112" alt="Chromaoke logo: the letter C as a microphone's cradle, with the mic head in its mouth" />
-</p>
-
-<h1 align="center">Chromaoke</h1>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg" />
+    <img src="docs/logo-light.svg" height="52" align="absmiddle" alt="Chromaoke logo: the letter C as a microphone's cradle, with the mic head in its mouth" />
+  </picture>
+  Chromaoke
+</h1>
 
 <p align="center"><em>Type the song. Paint the room.</em></p>
 
@@ -25,9 +27,13 @@ Search for any song, pick a mode, and type every line of it.
 
 In Audio + text you can also turn on **Sing as I type**: each word is sung as you type it, and the song waits for you.
 
-![Typing "Stand by Me" in Audio + text: the page has taken the cover's rose tones, and the line being sung is marked](docs/screenshots/typing.png)
+The site rests in warm black and brass. When a song starts, three colours are taken from its album cover and ripple out from the cover in rings, painting the page:
 
-The site rests in warm black and brass. When a song starts, its album cover sets the colours: up to three tones are taken from the cover and turned into a dark, readable palette, with a soft glow that pulses on the bass. Going back to the home page fades the colour out again.
+![The moment "Stand by Me" starts: rings of rose, orange and violet ripple out from the album cover across the page](docs/screenshots/ripple.jpg)
+
+The ripple settles into a slow-drifting wash of all three colours that pulses on the bass, with the colours kept dark enough for the lyrics to stay readable. Going back to the home page fades it out again. People whose system asks for reduced motion get the colours without the ripple or the drift.
+
+![Typing "Stand by Me" in Audio + text, in a wash of the cover's rose, violet and orange, with the line being sung marked](docs/screenshots/typing.png)
 
 ![Results for "Perfect": 96 WPM, 98% accuracy, all 289 words right, and a chart of speed through the song](docs/screenshots/results.png)
 

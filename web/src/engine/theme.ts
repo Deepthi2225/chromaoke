@@ -115,8 +115,8 @@ function applyPalette(palette: Record<string, string> | null) {
   }
 }
 
-/** Finds the song's artwork and palette; the palette is only applied while `inColour`. Returns the artwork URL. */
-export function useSongTheme(songId: number | null, inColour: boolean): string | null {
+/** Finds the song's artwork and palette; the palette is only applied while `inColour`. Returns the artwork URL and the applied palette. */
+export function useSongTheme(songId: number | null, inColour: boolean): { artUrl: string | null; palette: Record<string, string> | null } {
   const [theme, setTheme] = useState<{ songId: number; url: string | null; palette: Record<string, string> } | null>(null)
 
   useEffect(() => {
@@ -134,5 +134,5 @@ export function useSongTheme(songId: number | null, inColour: boolean): string |
   const palette = inColour ? current?.palette ?? null : null
   useEffect(() => applyPalette(palette), [palette])
 
-  return current?.url ?? null
+  return { artUrl: current?.url ?? null, palette }
 }
