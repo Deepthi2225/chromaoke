@@ -3,6 +3,7 @@ import './App.css'
 import { AccountPanel } from './components/AccountPanel'
 import { History } from './components/History'
 import { Logo } from './components/Logo'
+import { Ripple } from './components/Ripple'
 import { Home, type SearchState } from './components/Home'
 import { Results, type ResultsData } from './components/Results'
 import { Setup } from './components/Setup'
@@ -216,7 +217,8 @@ function App() {
   const [colouredRun, setColouredRun] = useState<number | null>(null)
   const inColour = screen.name === 'results' || (screen.name === 'typing' && colouredRun === screen.started)
   const playing = screen.name === 'typing' ? screen.song : screen.name === 'results' ? screen.data.song : null
-  const artUrl = useSongTheme(screen.name === 'setup' ? screen.songId : playing?.id ?? null, inColour)
+  const { artUrl, palette } = useSongTheme(screen.name === 'setup' ? screen.songId : playing?.id ?? null, inColour)
+  const rippleTrigger = screen.name === 'typing' && inColour && palette ? String(screen.started) : null
 
   useEffect(() => {
     document.title = playing ? `♫ ${playing.title} — ${playing.artist}` : 'Chromaoke'
@@ -227,6 +229,7 @@ function App() {
   return (
     <div className={inColour ? 'shell in-colour' : 'shell'}>
       <div className="atmosphere" aria-hidden />
+      <Ripple trigger={rippleTrigger} colours={palette ? [palette['--glow'], palette['--glow-2'], palette['--glow-3']] : []} />
       <header className="topbar">
         <button className="brand" onClick={goHome} disabled={typing}>
           <Logo />
