@@ -365,7 +365,7 @@ kbd { font: 600 10px var(--mono); border: 1px solid currentColor; border-radius:
 .bench-scene .core-swirl { transform-box: fill-box; transform-origin: center; animation: swirl 1.4s ease-in-out infinite; }
 @keyframes swirl { 0%, 100% { transform: translateY(-16px) scaleX(1); } 50% { transform: translateY(18px) scaleX(.7); } }
 
-.bench-scene .scan-cone { transform-origin: 278px 146px; animation: scan-sweep 2.4s ease-in-out infinite alternate; }
+.bench-scene .scan-cone { transform-origin: 306px 121px; animation: scan-sweep 2.4s ease-in-out infinite alternate; }
 .bench-scene .scan-line { animation: scan-line 2s ease-in-out infinite alternate; filter: drop-shadow(0 0 4px #36D9F5); }
 @keyframes scan-sweep { from { transform: rotate(-3deg); } to { transform: rotate(4deg); } }
 @keyframes scan-line { from { transform: translateY(170px); } to { transform: translateY(300px); } }
@@ -600,3 +600,90 @@ kbd { font: 600 10px var(--mono); border: 1px solid currentColor; border-radius:
 @keyframes rise { 0% { opacity: 0; transform: translateY(0); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(14px, -170px); } }
 .bench-scene .particles.drifting circle { animation: mote 6s ease-in-out infinite; opacity: 0; }
 .reduce-motion .bench-scene .rain, .reduce-motion .bench-scene .particles { display: none; }
+
+/* ================= Repair Station: full-screen mission scene with an in-world HUD ================= */
+.station-stage { --hud: #36D9F5; --hud-glow: rgba(54, 217, 245, .55); }
+.station-stage.danger { --hud: #FF5A4E; --hud-glow: rgba(255, 90, 78, .55); }
+.mission-stage {
+  position: relative; container-type: inline-size; overflow: hidden;
+  width: min(100vw, 1600px); margin: -32px 0 0 calc(50% - min(50vw, 800px));
+  height: clamp(420px, min(56.25vw, 900px), calc(100vh - 200px));
+  background: #05060F; border-bottom: 1px solid #2A3A58;
+}
+.mission-stage > svg { position: absolute; inset: 0; display: block; border-radius: 0; }
+.mission-stage::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(90deg, rgba(4, 6, 14, .72), rgba(4, 6, 14, .28) 38%, transparent 58%), linear-gradient(180deg, rgba(4, 6, 14, .6), transparent 24%); }
+.glitch-flash { position: absolute; inset: 0; z-index: 2; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(255, 100, 124, .16) 0 2px, transparent 2px 6px); animation: glitch-lines .3s ease-out forwards; }
+
+.ms-title { position: absolute; z-index: 3; left: 2.4cqw; top: 3%; max-width: 56cqw; }
+.ms-title h1 { font: 700 max(20px, 2.2cqw)/1.05 var(--display); letter-spacing: .04em; color: var(--hud); text-shadow: 0 0 18px var(--hud-glow), 0 2px 0 #05060F; }
+.ms-title p { margin: .4cqw 0 0; font: 600 max(10px, .78cqw) var(--mono); letter-spacing: .1em; color: #C9D3E6; text-shadow: 0 1px 4px #000; }
+
+.ms-timer { position: absolute; z-index: 3; right: 2.4cqw; top: 3%; display: grid; justify-items: end; padding: .6cqw 1.1cqw; background: rgba(5, 8, 18, .78); border: 1px solid var(--hud); clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
+.ms-timer span { font: 700 max(9px, .65cqw) var(--mono); letter-spacing: .14em; color: #9EB0CC; }
+.ms-timer strong { font: 700 max(22px, 2.1cqw)/1.1 var(--display); color: var(--warning); font-variant-numeric: tabular-nums; }
+.ms-timer.urgent { border-color: var(--error); animation: urgent 1s ease-in-out infinite; }
+.ms-timer.urgent strong { color: var(--error); }
+.ms-timer .combo-badge { position: static; margin-top: .4cqw; font-style: normal; }
+
+/* status widget: a battery-style readout, different for every mission */
+.ms-status { position: absolute; z-index: 3; left: 2.4cqw; top: 27%; padding: .9cqw 1.2cqw; background: rgba(5, 8, 18, .62); border: 1px solid currentColor; clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px); font: 700 max(13px, 1.2cqw)/1.25 var(--display); letter-spacing: .03em; text-shadow: 0 0 10px currentColor; }
+.ms-status p { margin: 0; }
+.ms-status.tone-good { color: var(--success); } .ms-status.tone-warn { color: var(--warning); } .ms-status.tone-bad { color: var(--error); }
+.ms-cells { display: flex; align-items: center; gap: 4px; width: fit-content; margin-bottom: .6cqw; padding: 4px; border: 2px solid currentColor; }
+.ms-cells i { width: max(14px, 1.45cqw); height: max(18px, 1.9cqw); background: rgba(255, 255, 255, .08); }
+.ms-cells i.on { background: currentColor; box-shadow: 0 0 10px currentColor; }
+.ms-cells b { width: 4px; height: 12px; margin-left: 3px; background: currentColor; }
+
+/* the TYPING terminal window: solid and high-contrast so the passage is always readable */
+.ms-terminal {
+  position: absolute; z-index: 3; left: 2.4cqw; bottom: 3.5%; width: min(46cqw, 660px);
+  background: rgba(4, 9, 18, .92); border: 1.5px solid var(--hud); box-shadow: inset 0 0 30px var(--hud-glow);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%);
+}
+.ms-term-bar { display: flex; justify-content: space-between; padding: .3cqw .9cqw; background: var(--hud); color: #04121A; font: 700 max(12px, .95cqw) var(--display); letter-spacing: .14em; }
+.ms-term-body { padding: .9cqw 1.2cqw 1cqw; }
+.ms-cmd { margin: 0 0 .7cqw; font: 600 max(11px, .82cqw)/1.5 var(--mono); letter-spacing: .06em; color: var(--hud); }
+.ms-terminal .passage { padding: 0; font: 500 max(15px, 1.2cqw)/1.65 var(--mono); color: #8F9DB8; }
+.ms-terminal .passage .prompt { margin-right: .5em; color: var(--hud); }
+.ms-foot { margin: .5cqw 0 0; font: max(10px, .72cqw) var(--mono); color: #6F7F9C; }
+.station-stage.is-repaired .ms-terminal { --hud: #54E6A5; --hud-glow: rgba(84, 230, 165, .45); }
+.station-stage .hud { margin-top: 18px; }
+
+/* mission-scene details */
+.mission-scene .holo-float { animation: holo-bob 3.2s ease-in-out infinite; }
+.mission-scene .holo-float.h2 { animation-delay: -1.6s; }
+@keyframes holo-bob { 50% { transform: translateY(-3px); opacity: .85; } }
+.mission-scene .scan-line-ms { animation: scan-ms 2s ease-in-out infinite alternate; filter: drop-shadow(0 0 4px #36D9F5); }
+@keyframes scan-ms { to { transform: translateY(var(--scan-h)); } }
+.mission-scene .key-flash { transform-box: fill-box; transform-origin: center; animation: flash .3s ease-out forwards; }
+.mission-scene .arm-right.typing { animation: arm-tap .32s ease-in-out infinite; }
+.mission-scene .strip { animation: pulse 4s ease-in-out infinite; }
+.mission-scene .strip.s2 { animation-delay: -2s; }
+.mission-scene .cell-liquid { transition: width .25s ease-out; }
+.mission-scene .beam-weak { animation: flicker .3s steps(2) infinite; }
+.mission-scene .beam-locked, .mission-scene .beam-ring { animation: pulse 1.3s ease-in-out infinite; }
+.cart-label .mission-scene { display: block; width: 100%; height: auto; border-radius: 0; }
+.encrypted { aspect-ratio: 16 / 9; }
+
+@media (max-width: 900px) {
+  .mission-stage { height: auto; container-type: normal; margin-top: -22px; }
+  .mission-stage > svg { position: static; width: 100%; height: auto; aspect-ratio: 16 / 9; }
+  .mission-stage::before { display: none; }
+  .ms-title, .ms-timer, .ms-status, .ms-terminal { position: static; width: auto; max-width: none; margin: 12px 16px 0; }
+  .ms-title h1 { font-size: 22px; }
+  .ms-title p { font-size: 11px; }
+  .ms-timer { justify-items: start; }
+  .ms-timer strong { font-size: 24px; }
+  .ms-status { font-size: 14px; padding: 10px 12px; }
+  .ms-cells i { width: 16px; height: 20px; }
+  .ms-terminal { margin-bottom: 4px; }
+  .ms-term-bar { font-size: 12px; padding: 4px 10px; }
+  .ms-term-body { padding: 12px 14px; }
+  .ms-cmd { font-size: 11px; }
+  .ms-terminal .passage { font-size: 16px; }
+  .ms-foot { font-size: 11px; }
+}
+
+/* painted mission backgrounds: a slow camera drift */
+.mission-scene .painted-bg { transform-box: view-box; transform-origin: 320px 180px; animation: camera-drift 26s ease-in-out infinite alternate; }
+@keyframes camera-drift { from { transform: scale(1.03) translate(0, 0); } to { transform: scale(1.07) translate(-8px, -3px); } }

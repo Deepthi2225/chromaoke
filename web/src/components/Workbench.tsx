@@ -9,11 +9,10 @@
 
 import { useId } from 'react'
 import type { MissionId } from '../data/missions'
-import { EnvBackdrop, EnvBench, EnvFront } from './environments'
 import { Part } from './parts'
-import { ENV_GRADE, MISSION_ENV, type BenchMode, type Env, type Id } from './sceneTypes'
+import { solveElbow, type BenchMode, type Id, type Point } from './sceneTypes'
 
-export type { BenchMode, Env } from './sceneTypes'
+export type { BenchMode } from './sceneTypes'
 
 
 interface Props {
@@ -31,8 +30,6 @@ interface Props {
   wide?: boolean
   /** Robots shown in the recharge bay (wide mode only). */
   pods?: Pod[]
-  /** Where the repair happens; defaults to the mission's own location. */
-  env?: Env
 }
 
 export interface Pod {
@@ -41,7 +38,6 @@ export interface Pod {
   owned: boolean
 }
 
-type Point = { x: number; y: number }
 
 // Where Tek's soldering iron touches, and where the other hand holds, per part.
 const RIG: Record<MissionId, { tip: Point; hold: Point }> = {
@@ -55,23 +51,7 @@ const LEFT_SHOULDER = { x: 278, y: 206 }
 const RIGHT_SHOULDER = { x: 368, y: 210 }
 const REST_HAND = { x: 334, y: 264 }
 
-/** Two-segment inverse kinematics; of the two elbow solutions, keep the lower one. */
-function elbow(shoulder: Point, hand: Point, upper: number, fore: number): Point {
-  const dx = hand.x - shoulder.x
-  const dy = hand.y - shoulder.y
-  const d = Math.min(Math.hypot(dx, dy), upper + fore - 0.01)
-  const a = (upper * upper - fore * fore + d * d) / (2 * d)
-  const h = Math.sqrt(Math.max(0, upper * upper - a * a))
-  const ux = dx / d
-  const uy = dy / d
-  const mx = shoulder.x + ux * a
-  const my = shoulder.y + uy * a
-  const p1 = { x: mx - uy * h, y: my + ux * h }
-  const p2 = { x: mx + uy * h, y: my - ux * h }
-  return p1.y >= p2.y ? p1 : p2
-}
-
-export function Workbench({ mission, mode, progress, hits = 0, slips = 0, lastEvent = 'hit', width = 440, detail = 'full', label, wide = false, pods = [], env: envProp }: Props) {
+export function Workbench({ mission, mode, progress, hits = 0, slips = 0, lastEvent = 'hit', width = 440, detail = 'full', label, wide = false, pods = [] }: Props) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const id: Id = (name) => `${uid}-${name}`
   const p = mode === 'celebrate' ? 1 : Math.max(0, Math.min(1, progress))
@@ -82,12 +62,10 @@ export function Workbench({ mission, mode, progress, hits = 0, slips = 0, lastEv
   const tip = resting ? { x: REST_HAND.x - 34, y: REST_HAND.y + 20 } : rig.tip
   const rightHand = resting ? REST_HAND : { x: tip.x + 36, y: tip.y - 24 }
   const leftHand = mode === 'celebrate' ? { x: 232, y: 168 } : rig.hold
-  const rElbow = elbow(RIGHT_SHOULDER, rightHand, 82, 78)
-  const lElbow = elbow(LEFT_SHOULDER, leftHand, 80, 78)
+  const rElbow = solveElbow(RIGHT_SHOULDER, rightHand, 82, 78)
+  const lElbow = solveElbow(LEFT_SHOULDER, leftHand, 80, 78)
   const armKey = mode === 'weld' ? `${hits}-${slips}` : mode
   const full = detail === 'full'
-  const env = envProp ?? MISSION_ENV[mission]
-  const look = env === 'workshop' ? null : ENV_GRADE[env]
 
   return (
     <svg
@@ -98,14 +76,14 @@ export function Workbench({ mission, mode, progress, hits = 0, slips = 0, lastEv
       role="img"
       aria-label={label ?? 'A technician robot repairing a part at a workbench'}
     >
-      <Defs id={id} p={p} vignette={look?.vignette ?? '#05060F'} />
+      <Defs id={id} p={p} vignette="#05060F" />
 
       {/* far layer, softly out of focus */}
       <g filter={`url(#${id('far')})`}>
-        {env === 'workshop' ? <FarWall id={id} full={full} wide={wide} /> : <EnvBackdrop env={env} id={id} p={p} mode={mode} full={full} />}
+        <FarWall id={id} full={full} wide={wide} />
       </g>
-      {env === 'workshop' && <Lamp id={id} />}
-      {env === 'workshop' && full && <Motes />}
+      <Lamp id={id} />
+      {full && <Motes />}
       {wide && <PodBay id={id} pods={pods} />}
 
       {/* Tek's soft shadow on the wall, then Tek */}
@@ -115,14 +93,14 @@ export function Workbench({ mission, mode, progress, hits = 0, slips = 0, lastEv
         <Head id={id} mode={mode} slipping={slipping} />
       </g>
 
-      {env === 'workshop' ? <Bench id={id} full={full} wide={wide} /> : <EnvBench env={env} id={id} p={p} mode={mode} full={full} />}
+      <Bench id={id} full={full} wide={wide} />
       {wide && <Projector id={id} />}
       <ellipse cx={204} cy={304} rx={92} ry={9} fill="#04050C" opacity="0.55" filter={`url(#${id('soft')})`} />
       <Part mission={mission} p={p} id={id} mode={mode} slipping={slipping} hits={hits} />
 
       {mode === 'scan' && (
         <g className="scan">
-          <polygon points="276,150 106,168 106,306 296,306" fill={`url(#${id('beam')})`} className="scan-cone" />
+          <polygon points="306,121 106,168 106,306 296,306" fill={`url(#${id('beam')})`} className="scan-cone" />
           <line x1={104} x2={298} y1={0} y2={0} stroke="#7FF0FF" strokeWidth="2" className="scan-line" />
         </g>
       )}
@@ -144,10 +122,6 @@ export function Workbench({ mission, mode, progress, hits = 0, slips = 0, lastEv
       )}
       {mode === 'fail' && <Smoke x={204} y={196} big />}
 
-      {look && env !== 'workshop' && <EnvFront env={env} id={id} p={p} mode={mode} full={full} />}
-      {look && (
-        <rect width={480} height={340} fill={env === 'reactor' && mode === 'celebrate' ? '#7FD4FF' : look.grade} opacity={look.strength} style={{ mixBlendMode: 'soft-light' }} pointerEvents="none" className={env === 'reactor' && mode !== 'celebrate' ? 'grade-pulse' : ''} />
-      )}
       <rect x={wide ? -160 : 0} width={wide ? 800 : 480} height={340} fill={`url(#${id('vignette')})`} pointerEvents="none" />
     </svg>
   )
@@ -155,7 +129,7 @@ export function Workbench({ mission, mode, progress, hits = 0, slips = 0, lastEv
 
 /* ------------------------------------------------------------------ defs */
 
-function Defs({ id, p, vignette }: { id: Id; p: number; vignette: string }) {
+export function Defs({ id, p, vignette }: { id: Id; p: number; vignette: string }) {
   const core = coreColor(p)
   return (
     <defs>
@@ -208,18 +182,18 @@ function Defs({ id, p, vignette }: { id: Id; p: number; vignette: string }) {
 
       {/* Tek */}
       <radialGradient id={id('dome')} cx="32%" cy="22%" r="85%">
-        <stop offset="0%" stopColor="#E4E0FF" />
-        <stop offset="40%" stopColor="#9D97D4" />
-        <stop offset="100%" stopColor="#3A3563" />
+        <stop offset="0%" stopColor="#ECE7E0" />
+        <stop offset="45%" stopColor="#8F8A83" />
+        <stop offset="100%" stopColor="#35322F" />
       </radialGradient>
       <linearGradient id={id('torso')} x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stopColor="#ADA7E0" />
-        <stop offset="100%" stopColor="#3E3968" />
+        <stop offset="0%" stopColor="#ACA69E" />
+        <stop offset="100%" stopColor="#45413C" />
       </linearGradient>
       <radialGradient id={id('ball')} cx="35%" cy="30%" r="75%">
-        <stop offset="0%" stopColor="#DCD8FF" />
-        <stop offset="55%" stopColor="#7C76B4" />
-        <stop offset="100%" stopColor="#2E2A52" />
+        <stop offset="0%" stopColor="#EEE9E2" />
+        <stop offset="55%" stopColor="#8A857E" />
+        <stop offset="100%" stopColor="#2C2A27" />
       </radialGradient>
       <linearGradient id={id('rim')} x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stopColor="#7B80A6" />
@@ -548,58 +522,75 @@ function PodBay({ id, pods }: { id: Id; pods: Pod[] }) {
 
 /* --------------------------------------------------------------------- Tek */
 
-function Torso({ id, mode }: { id: Id; mode: BenchMode }) {
+// Tek, technician model: weathered gunmetal humanoid with goggles (after the project's concept art).
+// Drawn in Tek's own 480 x 340 frame; shoulders sit at (278, 206) and (368, 210).
+export function Torso({ id, mode }: { id: Id; mode: BenchMode }) {
   const core = mode === 'fail' ? '#FFCA70' : mode === 'celebrate' ? '#54E6A5' : '#36D9F5'
   return (
     <g>
-      <rect x={304} y={164} width={30} height={24} rx={6} fill="#2A2547" />
-      <path d="M270 198 Q264 184 280 182 L366 182 Q382 184 376 198 L386 262 Q386 278 370 278 L276 278 Q260 278 260 262 Z" fill={`url(#${id('torso')})`} stroke="#221D3D" strokeWidth="3" />
-      <path d="M278 190 Q300 186 320 186" fill="none" stroke="#E4E0FF" strokeOpacity="0.45" strokeWidth="3" strokeLinecap="round" />
-      <rect x={296} y={196} width={56} height={42} rx={11} fill="#2E2A52" stroke="#1C1838" strokeWidth="2" />
-      <circle cx={324} cy={217} r={9} fill={core} filter={`url(#${id('bloom')})`} className="chest-light" />
-      <circle cx={321} cy={214} r={3} fill="#FFFFFF" opacity="0.8" />
-      <g stroke="#1C1838" strokeWidth="2.5" strokeLinecap="round">
-        <line x1={302} x2={312} y1={232} y2={232} />
-        <line x1={336} x2={346} y1={232} y2={232} />
-      </g>
+      {/* ribbed neck */}
+      <rect x={311} y={148} width={22} height={40} rx={5} fill="#2B2927" />
+      {[156, 165, 174].map((y) => <rect key={y} x={308} y={y} width={28} height={4} rx={2} fill="#6A655F" />)}
+      {/* cables running down the back */}
+      <path d="M298 186 C 282 202 282 234 294 256" fill="none" stroke="#1C1A18" strokeWidth="6" />
+      <path d="M348 186 C 364 204 362 236 352 256" fill="none" stroke="#1C1A18" strokeWidth="5" />
+      {/* chest plate */}
+      <path d="M276 198 Q279 182 300 180 L344 180 Q365 182 368 198 L360 252 Q356 276 336 278 L308 278 Q288 276 284 252 Z" fill={`url(#${id('torso')})`} stroke="#141210" strokeWidth="2.5" />
+      <path d="M322 182 V240" stroke="#1C1A18" strokeWidth="2" />
+      <path d="M288 216 Q322 230 356 216" fill="none" stroke="#1C1A18" strokeWidth="2" />
+      <path d="M286 198 Q300 188 318 188" fill="none" stroke="#F0C99A" strokeOpacity="0.5" strokeWidth="2.5" strokeLinecap="round" />
+      {/* amber ID badge */}
+      <rect x={330} y={194} width={22} height={9} rx={1.5} fill="#E0A84A" stroke="#7A4A12" strokeWidth="1" />
+      <rect x={333} y={197} width={11} height={1.6} fill="#7A4A12" />
+      <rect x={333} y={199.6} width={7} height={1.4} fill="#7A4A12" />
+      {/* status light */}
+      <circle cx={304} cy={200} r={5} fill={core} filter={`url(#${id('bloom')})`} className="chest-light" />
+      {/* vents */}
+      {[0, 1, 2].map((i) => <rect key={i} x={300} y={234 + i * 7} width={44} height={3} rx={1.5} fill="#1C1A18" />)}
+      {/* rivets, rust and wear */}
+      {[[290, 206], [354, 208], [292, 246], [352, 246]].map(([x, y]) => (
+        <g key={`${x}${y}`}>
+          <circle cx={x} cy={y} r={2.4} fill="#3A3634" />
+          <circle cx={x - 0.7} cy={y - 0.7} r={0.9} fill="#E8E2DA" opacity="0.7" />
+        </g>
+      ))}
+      <circle cx={348} cy={226} r={4} fill="#8A5530" opacity="0.45" />
+      <circle cx={296} cy={226} r={2.6} fill="#8A5530" opacity="0.4" />
     </g>
   )
 }
 
-function Head({ id, mode, slipping }: { id: Id; mode: BenchMode; slipping: boolean }) {
+export function Head({ id, mode, slipping }: { id: Id; mode: BenchMode; slipping: boolean }) {
   const happy = mode === 'celebrate'
   const sad = mode === 'fail'
   const lamp = sad ? '#FFCA70' : '#36D9F5'
   return (
     <g className="tek-head">
-      {/* antennas */}
-      <path d="M296 56 C 284 34 266 30 256 14" fill="none" stroke="#9D97D4" strokeWidth="3" strokeLinecap="round" />
-      <path d="M342 56 C 354 32 376 28 386 12" fill="none" stroke="#9D97D4" strokeWidth="3" strokeLinecap="round" />
-      <circle cx={256} cy={13} r={4.5} fill="#FFCA70" filter={`url(#${id('bloom')})`} className="tip-glow" />
-      <circle cx={386} cy={11} r={4.5} fill="#36D9F5" filter={`url(#${id('bloom')})`} className="tip-glow t2" />
-
-      {/* dome */}
-      <ellipse cx={318} cy={110} rx={78} ry={64} fill={`url(#${id('dome')})`} stroke="#221D3D" strokeWidth="3" />
-      <path d="M246 112 Q318 88 390 112" fill="none" stroke="#2E2952" strokeWidth="2.5" />
-      <path d="M318 47 L318 98" stroke="#2E2952" strokeWidth="2" />
-      <ellipse cx={286} cy={70} rx={24} ry={11} fill="#FFFFFF" opacity="0.45" transform="rotate(-24 286 70)" />
-      <ellipse cx={268} cy={88} rx={5} ry={3} fill="#FFFFFF" opacity="0.4" />
-      {[[296, 92], [342, 92], [364, 72], [302, 64], [374, 100], [262, 106]].map(([x, y]) => (
-        <g key={`${x}${y}`}>
-          <circle cx={x} cy={y} r={3.6} fill="#3A3563" />
-          <circle cx={x - 1} cy={y - 1} r={1.3} fill="#D9D4FF" opacity="0.8" />
+      {/* ear discs */}
+      {[282, 362].map((x) => (
+        <g key={x}>
+          <circle cx={x} cy={118} r={11} fill={`url(#${id('rim')})`} stroke="#141210" strokeWidth="2" />
+          <circle cx={x} cy={118} r={5} fill={lamp} filter={`url(#${id('bloom')})`} className="side-lamp" />
         </g>
       ))}
-
-      {/* side lamp */}
-      <circle cx={392} cy={122} r={19} fill={`url(#${id('rim')})`} stroke="#14172A" strokeWidth="2" />
-      <circle cx={392} cy={122} r={11} fill={lamp} filter={`url(#${id('bloom')})`} className="side-lamp" />
-      <circle cx={389} cy={119} r={3} fill="#FFFFFF" opacity="0.8" />
-
-      {/* goggles */}
-      <rect x={278} y={136} width={42} height={12} rx={3} fill="#14172A" />
-      <Goggle id={id} cx={278} cy={140} r={25} happy={happy} sad={sad} slipping={slipping} />
-      <Goggle id={id} cx={342} cy={146} r={23} happy={happy} sad={sad} slipping={slipping} />
+      {/* helmet */}
+      <circle cx={322} cy={110} r={42} fill={`url(#${id('dome')})`} stroke="#141210" strokeWidth="2.5" />
+      <path d="M322 68 V98" stroke="#2A2724" strokeWidth="3" />
+      <path d="M283 104 Q322 92 361 104" fill="none" stroke="#2A2724" strokeWidth="2" />
+      <ellipse cx={303} cy={84} rx={14} ry={7} fill="#FFFFFF" opacity="0.42" transform="rotate(-28 303 84)" />
+      <path d="M286 100 A 42 42 0 0 1 308 72" fill="none" stroke="#F0C99A" strokeOpacity="0.45" strokeWidth="2.5" />
+      <circle cx={346} cy={88} r={3} fill="#8A5530" opacity="0.45" />
+      {/* faceplate and mouth grille */}
+      <path d="M291 126 Q293 156 322 158 Q351 156 353 126 Z" fill="#3A3633" stroke="#141210" strokeWidth="2" />
+      {happy ? (
+        <path d="M312 145 Q322 152 332 145" fill="none" stroke="#54E6A5" strokeWidth="2.5" strokeLinecap="round" filter={`url(#${id('bloom')})`} />
+      ) : (
+        [314, 320, 326, 332].map((x) => <line key={x} x1={x - 2} x2={x - 2} y1={142} y2={sad ? 148 : 151} stroke="#141210" strokeWidth="2.5" strokeLinecap="round" />)
+      )}
+      {/* goggle strap and goggles */}
+      <rect x={280} y={114} width={84} height={11} rx={4} fill="#2A2420" />
+      <Goggle id={id} cx={305} cy={120} r={12} happy={happy} sad={sad} slipping={slipping} />
+      <Goggle id={id} cx={339} cy={120} r={12} happy={happy} sad={sad} slipping={slipping} />
     </g>
   )
 }
@@ -607,49 +598,70 @@ function Head({ id, mode, slipping }: { id: Id; mode: BenchMode; slipping: boole
 function Goggle({ id, cx, cy, r, happy, sad, slipping }: { id: Id; cx: number; cy: number; r: number; happy: boolean; sad: boolean; slipping: boolean }) {
   return (
     <g>
-      <circle cx={cx} cy={cy} r={r + 9} fill={`url(#${id('rim')})`} stroke="#0E1020" strokeWidth="2" />
-      <circle cx={cx} cy={cy} r={r + 2} fill="#070912" />
-      {!sad && <circle cx={cx} cy={cy} r={r} fill="#36D9F5" opacity="0.55" filter={`url(#${id('bloom')})`} />}
+      <circle cx={cx} cy={cy} r={r + 5} fill={`url(#${id('rim')})`} stroke="#0E0C0A" strokeWidth="1.5" />
+      <circle cx={cx} cy={cy} r={r + 1.5} fill="#070912" />
+      {!sad && <circle cx={cx} cy={cy} r={r + 2} fill="#36D9F5" opacity="0.6" filter={`url(#${id('bloom')})`} />}
       <circle cx={cx} cy={cy} r={r} fill={sad ? '#6E5326' : `url(#${id('lens')})`} className="lens" />
-      <circle cx={cx} cy={cy} r={r * 0.7} fill="none" stroke="#FFFFFF" strokeOpacity="0.22" strokeWidth="1.5" />
-      {slipping && <circle cx={cx} cy={cy} r={r} fill="#FF647C" opacity="0.6" className="lens-alarm" />}
+      {slipping && <circle cx={cx} cy={cy} r={r} fill="#FF647C" opacity="0.65" className="lens-alarm" />}
       {happy ? (
-        <path d={`M${cx - r * 0.5} ${cy + 4} q${r * 0.5} -${r * 0.75} ${r} 0`} fill="none" stroke="#06303A" strokeWidth="4.5" strokeLinecap="round" />
+        <path d={`M${cx - r * 0.55} ${cy + 3} q${r * 0.55} -${r * 0.8} ${r * 1.1} 0`} fill="none" stroke="#06303A" strokeWidth="3" strokeLinecap="round" />
       ) : sad ? (
-        <rect x={cx - r - 1} y={cy - r - 1} width={r * 2 + 2} height={r + 2} fill="#14172A" />
+        <rect x={cx - r - 1} y={cy - r - 1} width={r * 2 + 2} height={r + 1} fill="#141210" />
       ) : (
-        <>
-          <circle cx={cx - r * 0.22} cy={cy + r * 0.22} r={r * 0.26} fill="#063A47" />
-          <circle cx={cx - r * 0.3} cy={cy + r * 0.14} r={r * 0.08} fill="#FFFFFF" opacity="0.9" />
-        </>
+        <circle cx={cx - r * 0.15} cy={cy + r * 0.15} r={r * 0.3} fill="#063A47" />
       )}
-      <path d={`M${cx - r * 0.72} ${cy - r * 0.15} A ${r * 0.75} ${r * 0.75} 0 0 1 ${cx - r * 0.1} ${cy - r * 0.72}`} fill="none" stroke="#FFFFFF" strokeOpacity="0.85" strokeWidth="3" strokeLinecap="round" />
+      <path d={`M${cx - r * 0.7} ${cy - r * 0.1} A ${r * 0.72} ${r * 0.72} 0 0 1 ${cx - r * 0.1} ${cy - r * 0.7}`} fill="none" stroke="#FFFFFF" strokeOpacity="0.85" strokeWidth="2" strokeLinecap="round" />
     </g>
   )
 }
 
-function Arm({ id, shoulder, elbowAt, hand }: { id: Id; shoulder: Point; elbowAt: Point; hand: Point }) {
+/** A segmented mechanical arm with a hydraulic piston on each segment and jointed fingers. */
+export function Arm({ id, shoulder, elbowAt, hand }: { id: Id; shoulder: Point; elbowAt: Point; hand: Point }) {
   const path = `M${shoulder.x} ${shoulder.y} L${elbowAt.x} ${elbowAt.y} L${hand.x} ${hand.y}`
-  const hl = `M${shoulder.x - 1.5} ${shoulder.y - 2.5} L${elbowAt.x - 1.5} ${elbowAt.y - 2.5} L${hand.x - 1.5} ${hand.y - 2.5}`
+  const hl = `M${shoulder.x - 1.2} ${shoulder.y - 2} L${elbowAt.x - 1.2} ${elbowAt.y - 2} L${hand.x - 1.2} ${hand.y - 2}`
   const angle = (Math.atan2(hand.y - elbowAt.y, hand.x - elbowAt.x) * 180) / Math.PI
+  const piston = (a: Point, b: Point) => {
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const len = Math.hypot(dx, dy) || 1
+    const nx = (-dy / len) * 6
+    const ny = (dx / len) * 6
+    return { x1: a.x + dx * 0.22 + nx, y1: a.y + dy * 0.22 + ny, x2: a.x + dx * 0.78 + nx, y2: a.y + dy * 0.78 + ny }
+  }
   return (
     <g className="tek-arm">
-      <path d={path} fill="none" stroke="#1C1838" strokeWidth="18" strokeLinecap="round" strokeLinejoin="round" />
-      <path d={path} fill="none" stroke="#6A64A0" strokeWidth="13" strokeLinecap="round" strokeLinejoin="round" />
-      <path d={hl} fill="none" stroke="#C4BEF0" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.75" />
-      <circle cx={shoulder.x} cy={shoulder.y} r={13} fill={`url(#${id('ball')})`} stroke="#1C1838" strokeWidth="2" />
-      <circle cx={elbowAt.x} cy={elbowAt.y} r={10} fill={`url(#${id('ball')})`} stroke="#1C1838" strokeWidth="2" />
+      <path d={path} fill="none" stroke="#141210" strokeWidth="13" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={path} fill="none" stroke="#6E6862" strokeWidth="9" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={hl} fill="none" stroke="#D8D2CA" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" opacity="0.7" />
+      {[piston(shoulder, elbowAt), piston(elbowAt, hand)].map((l, i) => (
+        <g key={i}>
+          <line {...l} stroke="#141210" strokeWidth="4.5" strokeLinecap="round" />
+          <line {...l} stroke="#B8B2AA" strokeWidth="2" strokeLinecap="round" />
+        </g>
+      ))}
+      {/* shoulder pad */}
+      <circle cx={shoulder.x} cy={shoulder.y} r={15} fill={`url(#${id('ball')})`} stroke="#141210" strokeWidth="2" />
+      <path d={`M${shoulder.x - 13} ${shoulder.y - 4} Q${shoulder.x} ${shoulder.y - 18} ${shoulder.x + 13} ${shoulder.y - 4}`} fill="none" stroke="#141210" strokeWidth="1.5" />
+      <circle cx={elbowAt.x} cy={elbowAt.y} r={8} fill={`url(#${id('ball')})`} stroke="#141210" strokeWidth="2" />
       <g transform={`translate(${hand.x} ${hand.y}) rotate(${angle})`}>
-        <rect x={4} y={-9} width={15} height={6} rx={3} fill="#7C76B4" stroke="#1C1838" strokeWidth="1.5" />
-        <rect x={6} y={-2.5} width={16} height={6} rx={3} fill="#7C76B4" stroke="#1C1838" strokeWidth="1.5" />
-        <rect x={3} y={4} width={13} height={6} rx={3} fill="#7C76B4" stroke="#1C1838" strokeWidth="1.5" />
-        <circle r={11} fill={`url(#${id('ball')})`} stroke="#1C1838" strokeWidth="2" />
+        {/* jointed fingers and thumb */}
+        <g stroke="#141210" strokeWidth="1.2">
+          <path d="M8 -6 L16 -8 L23 -6" fill="none" stroke="#141210" strokeWidth="4.6" strokeLinecap="round" />
+          <path d="M8 -6 L16 -8 L23 -6" fill="none" stroke="#9A948C" strokeWidth="2.8" strokeLinecap="round" />
+          <path d="M9 0 L18 0 L25 2" fill="none" stroke="#141210" strokeWidth="4.6" strokeLinecap="round" />
+          <path d="M9 0 L18 0 L25 2" fill="none" stroke="#9A948C" strokeWidth="2.8" strokeLinecap="round" />
+          <path d="M5 6 L12 11 L17 13" fill="none" stroke="#141210" strokeWidth="4.6" strokeLinecap="round" />
+          <path d="M5 6 L12 11 L17 13" fill="none" stroke="#9A948C" strokeWidth="2.8" strokeLinecap="round" />
+          <circle cx={16} cy={-8} r={1.3} fill="#3A3634" /><circle cx={18} cy={0} r={1.3} fill="#3A3634" /><circle cx={12} cy={11} r={1.3} fill="#3A3634" />
+        </g>
+        <rect x={-6} y={-8} width={15} height={16} rx={5} fill={`url(#${id('ball')})`} stroke="#141210" strokeWidth="2" />
+        <circle r={4.5} fill="#2B2927" />
       </g>
     </g>
   )
 }
 
-function Iron({ from, to }: { from: Point; to: Point }) {
+export function Iron({ from, to }: { from: Point; to: Point }) {
   const mid = { x: from.x + (to.x - from.x) * 0.58, y: from.y + (to.y - from.y) * 0.58 }
   const back = { x: from.x - (to.x - from.x) * 0.18, y: from.y - (to.y - from.y) * 0.18 }
   return (
@@ -665,7 +677,7 @@ function Iron({ from, to }: { from: Point; to: Point }) {
 /* ----------------------------------------------------------------- effects */
 
 /** Deterministic spark burst; `seed` varies the angles from key to key. */
-function Sparks({ x, y, seed, loop }: { x: number; y: number; seed: number; loop: boolean }) {
+export function Sparks({ x, y, seed, loop }: { x: number; y: number; seed: number; loop: boolean }) {
   return (
     <g className={`sparks ${loop ? 'loop' : ''}`} transform={`translate(${x} ${y})`}>
       <circle className="flash" r={9} fill="#FFF4D6" />
@@ -681,7 +693,7 @@ function Sparks({ x, y, seed, loop }: { x: number; y: number; seed: number; loop
   )
 }
 
-function Smoke({ x, y, big = false }: { x: number; y: number; big?: boolean }) {
+export function Smoke({ x, y, big = false }: { x: number; y: number; big?: boolean }) {
   return (
     <g className={`smoke ${big ? 'big' : ''}`} transform={`translate(${x} ${y})`}>
       <circle cx={0} cy={0} r={big ? 14 : 10} />

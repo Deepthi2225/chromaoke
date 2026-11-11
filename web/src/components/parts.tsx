@@ -40,7 +40,7 @@ function Battery({ p, id, mode, hits }: PartProps) {
     <g className="part">
       <path d={lead} fill="none" stroke="#C26A2E" strokeWidth="4" />
       {/* every correct key sends a pulse of clean energy down the copper lead */}
-      {mode === 'weld' && hits > 0 && <path key={hits} d={lead} pathLength={100} fill="none" stroke="#9CFF6B" strokeWidth="5" strokeLinecap="round" filter={bloom} className="lead-pulse" />}
+      {mode === 'weld' && hits > 0 && <path key={`pulse-${hits}`} d={lead} pathLength={100} fill="none" stroke="#9CFF6B" strokeWidth="5" strokeLinecap="round" filter={bloom} className="lead-pulse" />}
       {mode === 'demo' && <path d={lead} pathLength={100} fill="none" stroke="#9CFF6B" strokeWidth="5" strokeLinecap="round" filter={bloom} className="lead-pulse loop" />}
       <path d="M218 170 C 262 168 270 210 300 256" fill="none" stroke="#2A2547" strokeWidth="4" />
       <rect x={86} y={254} width={14} height={8} rx={2} fill="#C26A2E" />
@@ -250,7 +250,7 @@ function Coolant({ p, id, mode, hits }: PartProps) {
       </g>
       {/* cryo-foam bursts with every correct key */}
       {mode === 'weld' && hits > 0 && (
-        <g key={hits} className="cryo" transform="translate(202 258)">
+        <g key={`cryo-${hits}`} className="cryo" transform="translate(202 258)">
           <circle cx={-10} cy={0} r={7} /><circle cx={0} cy={-4} r={8} /><circle cx={10} cy={0} r={6} />
         </g>
       )}

@@ -7,6 +7,7 @@ import { MISSIONS, type Mission, type MissionId } from '../data/missions'
 import { recommendation } from '../engine/coach'
 import { sfx } from '../engine/sound'
 import { isUnlocked, rankFor, type SaveData } from '../engine/storage'
+import { MissionScene } from './MissionScene'
 import { Workbench } from './Workbench'
 
 const DAILY_GOAL = 3
@@ -33,7 +34,6 @@ export function Workshop({ save, onSelect }: { save: SaveData; onSelect: (id: Mi
             mode="demo"
             progress={0.55}
             wide
-            env="workshop"
             width={1600}
             pods={MISSIONS.map((m) => ({ name: m.robot.name, hue: m.robot.hue, owned: owned(m) }))}
             label={`Repair facility 7: Tek working on the ${next.name} part, with ${rescued} of ${MISSIONS.length} rescued robots in the recharge bay`}
@@ -106,12 +106,12 @@ function Cartridge({ mission, save, unlocked, sound, onSelect }: { mission: Miss
       <span className="cart-grip" aria-hidden />
       <span className="cart-label">
         {unlocked ? (
-          <Workbench
+          <MissionScene
             mission={mission.id}
             mode={repaired ? 'celebrate' : 'demo'}
             progress={repaired ? 1 : 0.4}
             detail="card"
-            width={260}
+            width={300}
             label={`${mission.name} workbench`}
           />
         ) : (

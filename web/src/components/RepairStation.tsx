@@ -3,8 +3,8 @@ import type { Level, Mission } from '../data/missions'
 import { sfx } from '../engine/sound'
 import type { Settings } from '../engine/storage'
 import { computeMetrics, type Keystroke, type SessionMetrics } from '../engine/typing'
-import { Workbench } from './Workbench'
-import type { RobotMood } from './Robot'
+import type { MissionId } from '../data/missions'
+import { MissionScene } from './MissionScene'
 
 export interface RepairResult {
   metrics: SessionMetrics
@@ -23,7 +23,30 @@ interface Props {
   onAbort: () => void
 }
 
-const START_HEALTH = 18
+/** In-world terminal header and status readout for each mission (from the concept art). */
+const CONSOLE: Record<MissionId, { command: string; script: string }> = {
+  battery: { command: 'STABILIZE THE CELL', script: '>LOAD ENERGY_VAULT.PY' },
+  circuit: { command: 'RESTORE CIRCUIT TRACES', script: '>LOAD ROUTING_MATRIX.PY' },
+  code: { command: 'DEBUGGING ACTIVE', script: '>DECRYPTION_RETRY' },
+  comms: { command: 'BYPASS FREQUENCY', script: '>EXECUTE COMM_LINK.PY' },
+  shutdown: { command: 'INITIATE SCRAM SEQUENCE', script: '>FORCE_CORE_OVERRIDE.PY' },
+}
+
+function status(mission: MissionId, pct: number): { label: string; value: number; state: string; tone: 'good' | 'warn' | 'bad' } {
+  const tone = pct >= 100 ? 'good' : pct >= 50 ? 'warn' : 'bad'
+  switch (mission) {
+    case 'battery':
+      return { label: 'BATTERY', value: pct, state: pct >= 100 ? 'STABLE' : 'STABILIZING', tone }
+    case 'circuit':
+      return { label: 'CIRCUIT', value: pct, state: 'RECONSTRUCTED', tone }
+    case 'code':
+      return pct >= 100 ? { label: 'SYSTEM', value: 0, state: 'CLEAN', tone: 'good' } : { label: 'SYSTEM', value: 100 - pct, state: 'CORRUPTED', tone: pct >= 50 ? 'warn' : 'bad' }
+    case 'comms':
+      return { label: 'SIGNAL STABILITY', value: pct, state: pct >= 100 ? 'LOCKED' : 'SEARCHING', tone }
+    case 'shutdown':
+      return { label: 'CONTAINMENT', value: pct, state: pct >= 100 ? 'SECURED' : pct >= 50 ? 'RECOVERING' : 'FAILING', tone }
+  }
+}
 
 export function RepairStation({ mission, level, passage, settings, onFinish, onAbort }: Props) {
   const [typed, setTyped] = useState('')
@@ -46,7 +69,6 @@ export function RepairStation({ mission, level, passage, settings, onFinish, onA
   const elapsed = startTime ? now - startTime : 0
   const timeLeft = Math.max(0, level.timeLimit - Math.floor(elapsed / 1000))
   const correctPositions = [...typed].filter((char, i) => char === passage[i]).length
-  const health = Math.round(START_HEALTH + (100 - START_HEALTH) * (correctPositions / passage.length))
   const wpm = elapsed > 1500 ? Math.round(correctPositions / 5 / (elapsed / 60000)) : 0
   const accuracy = keyCount.total ? Math.round((keyCount.correct / keyCount.total) * 100) : 100
 
@@ -131,65 +153,68 @@ export function RepairStation({ mission, level, passage, settings, onFinish, onA
     return () => window.removeEventListener('keydown', onKey)
   }, [finish, onAbort, passage, settings.glitchEffects, settings.reduceMotion, settings.sound])
 
-  const recentlyHit = now - lastError < 700
-  const mood: RobotMood = finished === true ? 'celebrating' : finished === false ? 'damaged' : recentlyHit ? 'struggling' : health < 40 ? 'damaged' : 'idle'
   const urgent = startTime !== null && timeLeft <= 10 && finished === null
   const progress = Math.round((typed.length / passage.length) * 100)
+  const restored = Math.round((correctPositions / passage.length) * 100)
+  const readout = status(mission.id, finished === true ? 100 : restored)
+  const filled = Math.round((readout.value / 100) * 5)
+  const danger = mission.id === 'shutdown'
+  const flinch = now - lastError < 700
 
   return (
-    <section ref={stationRef} className={`station screen-enter ${finished === true ? 'is-repaired' : ''}`}>
-      <div className="station-head">
-        <div>
-          <p className="eyebrow cyan">MISSION 0{mission.number} · {mission.name.toUpperCase()} · LEVEL {level.level}</p>
-          <h1>{finished === true ? `${mission.robot.name} restored` : finished === false ? 'System timeout' : mission.malfunction}</h1>
+    <section ref={stationRef} className={`station station-stage screen-enter ${danger ? 'danger' : ''} ${finished === true ? 'is-repaired' : ''}`}>
+      <div className="mission-stage">
+        <MissionScene
+          mission={mission.id}
+          mode={finished === true ? 'celebrate' : finished === false ? 'fail' : startTime ? 'weld' : 'scan'}
+          progress={correctPositions / passage.length}
+          hits={keyCount.correct}
+          slips={errors}
+          lastEvent={lastEvent}
+          fit="cover"
+          label={`Mission ${mission.number}: Tek repairing ${mission.robot.name}, ${restored}% restored${flinch ? ', after a slip' : ''}`}
+        />
+        {glitch > 0 && settings.glitchEffects && <div className="glitch-flash" key={glitch} aria-hidden />}
+
+        <div className="ms-title">
+          <h1>MISSION 0{mission.number}: {mission.name.toUpperCase()}</h1>
+          <p>LEVEL {level.level} · {finished === true ? `${mission.robot.name} RESTORED` : finished === false ? 'SYSTEM TIMEOUT' : mission.malfunction.toUpperCase()}</p>
         </div>
-        <div className={`timer ${urgent ? 'urgent' : ''}`} role="timer" aria-live="off">
+
+        <div className={`ms-timer ${urgent ? 'urgent' : ''}`} role="timer" aria-live="off">
           <span>TIME LEFT</span>
           <strong>{String(Math.floor(timeLeft / 60)).padStart(2, '0')}:{String(timeLeft % 60).padStart(2, '0')}</strong>
+          {combo >= 10 && <em className="combo-badge" key={Math.floor(combo / 10)}>COMBO ×{combo}</em>}
         </div>
-      </div>
 
-      <div className="station-grid">
-        <div className={`robot-bay holo-panel ${glitch && settings.glitchEffects ? 'glitching' : ''}`} key={`bay-${glitch}`}>
-          <div className="bay-grid" aria-hidden />
-          <Workbench
-            mission={mission.id}
-            mode={finished === true ? 'celebrate' : finished === false ? 'fail' : startTime ? 'weld' : 'scan'}
-            progress={correctPositions / passage.length}
-            hits={keyCount.correct}
-            slips={errors}
-            lastEvent={lastEvent}
-            width={380}
-            label={`Tek repairing ${mission.robot.name}'s part, ${Math.round((correctPositions / passage.length) * 100)}% restored; ${mission.robot.name} is ${mood}`}
-          />
-          <div className="bay-readout">
-            <div className="health-row">
-              <span>CORE INTEGRITY</span>
-              <strong className={health < 40 ? 'warn' : 'ok'}>{health}%</strong>
+        <div className={`ms-status tone-${readout.tone}`} aria-label={`${readout.label} ${readout.value} percent, ${readout.state}`}>
+          <div className="ms-cells">
+            {[0, 1, 2, 3, 4].map((i) => <i key={i} className={i < filled ? 'on' : ''} />)}
+            <b />
+          </div>
+          <p>{readout.label}: {readout.value}%</p>
+          <p>{readout.state}</p>
+        </div>
+
+        <div className="ms-terminal">
+          <div className="ms-term-bar"><span>TYPING</span><span aria-hidden>_ □ ×</span></div>
+          <div className="ms-term-body">
+            <p className="ms-cmd">{CONSOLE[mission.id].command}<br />{CONSOLE[mission.id].script}</p>
+            <div className="passage" aria-label="Repair command to type">
+              <span className="prompt" aria-hidden>&gt;</span>
+              {[...passage].map((char, i) => {
+                const entered = typed[i]
+                const state = entered === undefined ? (i === typed.length ? 'current' : '') : entered === char ? 'correct' : 'wrong'
+                return (
+                  <span key={i} className={state}>
+                    {state === 'wrong' && char === ' ' ? '·' : char}
+                  </span>
+                )
+              })}
             </div>
-            <div className="meter"><i style={{ width: `${health}%`, background: health < 40 ? 'var(--error)' : health < 70 ? 'var(--warning)' : 'var(--success)' }} /></div>
-          </div>
-          {combo >= 10 && <div className="combo-badge" key={Math.floor(combo / 10)}>COMBO ×{combo}</div>}
-        </div>
-
-        <div className="terminal holo-panel">
-          <div className="terminal-bar">
-            <span><i /> REPAIR_TERMINAL // {mission.robot.name}</span>
-            <span className={finished === null ? 'linked' : finished ? 'linked' : 'lost'}>{finished === false ? '● LINK LOST' : '● LINKED'}</span>
-          </div>
-          <div className={`passage ${mission.id === 'code' || mission.id === 'shutdown' ? 'mono-strong' : ''}`} aria-label="Repair command to type">
-            {[...passage].map((char, i) => {
-              const entered = typed[i]
-              const state = entered === undefined ? (i === typed.length ? 'current' : '') : entered === char ? 'correct' : 'wrong'
-              return (
-                <span key={i} className={state}>
-                  {state === 'wrong' && char === ' ' ? '·' : char}
-                </span>
-              )
-            })}
-          </div>
-          <div className="terminal-foot">
-            {finished !== null ? (finished ? 'Repair sequence complete. Compiling diagnostics…' : 'Time expired. Compiling diagnostics…') : startTime ? 'Input channel live · Backspace fixes · Esc aborts' : 'Start typing to begin the repair. The timer starts on your first key.'}
+            <p className="ms-foot">
+              {finished !== null ? (finished ? 'Repair sequence complete. Compiling diagnostics…' : 'Time expired. Compiling diagnostics…') : startTime ? 'Backspace fixes · Esc aborts' : 'Start typing to begin. The timer starts on your first key.'}
+            </p>
           </div>
           {finished === true && <CircuitTrace />}
         </div>
