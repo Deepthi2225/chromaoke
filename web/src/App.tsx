@@ -1,59 +1,117 @@
 import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 import { AccountPanel } from './components/AccountPanel'
-import { Briefing } from './components/Briefing'
-import { Lab } from './components/Lab'
-import { RepairStation, type RepairResult } from './components/RepairStation'
-import { Report, type ReportData } from './components/Report'
-import { Workshop } from './components/Workshop'
-import { getMission, type MissionId } from './data/missions'
-import { emptyProfile, updateProfile } from './engine/analyzer'
-import { api, ApiError, getToken, type AccountData } from './engine/api'
-import { sessionNotes } from './engine/coach'
-import { nextLevel, pickPassage } from './engine/difficulty'
-import { sfx } from './engine/sound'
-import { defaultSave, loadSave, rankFor, writeSave, type SaveData, type Settings } from './engine/storage'
-import { computeStars, computeXp } from './engine/typing'
+import { History } from './components/History'
+import { Logo } from './components/Logo'
+import { Home, type SearchState } from './components/Home'
+import { Results, type ResultsData } from './components/Results'
+import { Setup } from './components/Setup'
+import { Typing } from './components/Typing'
+import { api, ApiError, getToken, type AudioCandidate, type Mode, type Song } from './engine/api'
+import type { SessionResult } from './engine/session'
+import { useSongTheme } from './engine/theme'
+import { DEFAULT_SPEED, speedFromHistory } from './engine/catalog'
+import { emptyKeyStats, mergeKeyStats, sessionKeyStats, type KeyStats } from './engine/keys'
+import { loadChosenSpeed, loadHistory, loadKeyStats, writeChosenSpeed, writeHistory, writeKeyStats, type ResultRecord } from './engine/storage'
+import { Practice } from './components/Practice'
+import { Leaderboards } from './components/Leaderboards'
+import { streakDays } from './engine/streak'
 
-/** Drifting dust particles: [left %, top %, delay s]. */
-const DUST = [[8, 82, 0], [22, 64, 3], [37, 90, 6], [55, 75, 1.5], [68, 88, 8], [82, 70, 4.5], [93, 92, 10], [46, 58, 12]]
+interface Run {
+  song: Song
+  mode: Mode
+  audio: AudioCandidate | null
+  /** Audio + text only: the song plays only while the typist is typing. */
+  follow: boolean
+  /** A short practice drill: it updates key statistics but is not saved to history or leaderboards. */
+  drill: boolean
+  skip: string[]
+}
 
 type Screen =
-  | { name: 'workshop' }
-  | { name: 'lab' }
-  | { name: 'briefing'; mission: MissionId }
-  | { name: 'repair'; mission: MissionId; level: number; passage: string; run: number }
-  | { name: 'report'; data: ReportData }
+  | { name: 'home' }
+  | { name: 'practice' }
+  | { name: 'leaderboards' }
+  | { name: 'history' }
+  | { name: 'account' }
+  | { name: 'setup'; songId: number; skip: string[] }
+  | ({ name: 'typing'; started: number } & Run)
+  | { name: 'results'; data: ResultsData; replay: Run }
 
-/** Signed-in players: progress comes from the server, settings stay per device. */
-const fromAccount = (data: AccountData, settings: Settings): SaveData => ({
-  xp: data.xp,
-  missions: data.missions,
-  history: data.history,
-  profile: data.profile ?? emptyProfile(),
-  settings,
-})
+// Pages have addresses, so links, reload and the browser's back button work.
+function screenFromAddress(): Screen {
+  const hash = window.location.hash
+  const song = hash.match(/^#\/song\/(\d+)$/)
+  if (song) return { name: 'setup', songId: Number(song[1]), skip: [] }
+  if (hash === '#/practice') return { name: 'practice' }
+  if (hash === '#/leaderboards') return { name: 'leaderboards' }
+  if (hash === '#/history') return { name: 'history' }
+  if (hash === '#/account') return { name: 'account' }
+  return { name: 'home' }
+}
+
+function addressOf(screen: Screen): string {
+  if (screen.name === 'setup') return `#/song/${screen.songId}`
+  if (screen.name === 'typing') return screen.drill ? '#/practice' : `#/song/${screen.song.id}`
+  if (screen.name === 'results') return screen.replay.drill ? '#/practice' : `#/song/${screen.data.song.id}`
+  return screen.name === 'home' ? '#/' : `#/${screen.name}`
+}
+
+const currentAddress = () => window.location.hash || '#/'
+
+const RECENT_SONGS = 3
+
+/** The latest attempt at each of the last few songs, newest first. */
+function recentSongs(history: ResultRecord[]): ResultRecord[] {
+  const seen = new Map<number, ResultRecord>()
+  for (let i = history.length - 1; i >= 0 && seen.size < RECENT_SONGS; i--) {
+    if (!seen.has(history[i].songId)) seen.set(history[i].songId, history[i])
+  }
+  return [...seen.values()]
+}
 
 function App() {
-  const [save, setSave] = useState<SaveData>(loadSave)
+  const [history, setHistory] = useState<ResultRecord[]>(loadHistory)
   const [account, setAccount] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(() => Boolean(getToken()))
   const [notice, setNotice] = useState('')
-  const [screen, setScreen] = useState<Screen>({ name: 'workshop' })
-  const [panel, setPanel] = useState<null | 'settings' | 'account'>(null)
+  const [screen, setScreen] = useState<Screen>(screenFromAddress)
+  const [search, setSearch] = useState<SearchState>({ query: '', results: null })
+  const [keyStats, setKeyStats] = useState<KeyStats>(loadKeyStats)
+  const [chosenSpeed, setChosenSpeed] = useState<number | null>(loadChosenSpeed)
+  const historySpeed = speedFromHistory(history)
+  const speed = chosenSpeed ?? historySpeed ?? DEFAULT_SPEED
 
-  // The guest save lives in localStorage; an account's save lives on the server.
+  const chooseSpeed = (value: number | null) => {
+    setChosenSpeed(value)
+    writeChosenSpeed(value)
+  }
+
   useEffect(() => {
-    if (!account && !connecting) writeSave(save)
-  }, [save, account, connecting])
+    if (currentAddress() !== addressOf(screen)) window.history.pushState(null, '', addressOf(screen))
+  }, [screen])
+
+  useEffect(() => {
+    const onMove = () => setScreen((current) => (addressOf(current) === currentAddress() ? current : screenFromAddress()))
+    window.addEventListener('popstate', onMove)
+    return () => window.removeEventListener('popstate', onMove)
+  }, [])
+
+  useEffect(() => {
+    if (!account && !connecting) writeHistory(history)
+  }, [history, account, connecting])
+
+  useEffect(() => {
+    if (!account && !connecting) writeKeyStats(keyStats)
+  }, [keyStats, account, connecting])
 
   const loadAccount = useCallback(async () => {
     const data = await api.me()
     setAccount(data.username)
-    setSave((prev) => fromAccount(data, prev.settings))
+    setHistory(data.history)
+    setKeyStats(data.keyStats)
   }, [])
 
-  // Resume a stored session on start-up.
   useEffect(() => {
     if (!getToken()) return
     // State is only set after the server responds (async), so this is a genuine external sync.
@@ -61,92 +119,45 @@ function App() {
     loadAccount()
       .catch((error) => {
         if (error instanceof ApiError && error.status === 401) api.forgetToken()
-        setNotice(error instanceof ApiError && error.status === 401 ? 'Your session expired. Playing as guest.' : 'Server unreachable. Playing as guest on this device.')
+        setNotice(error instanceof ApiError && error.status === 401 ? 'Your session expired. You are not signed in.' : 'Server unreachable. History is saved in this browser for now.')
       })
       .finally(() => setConnecting(false))
   }, [loadAccount])
 
-  const backToGuest = useCallback(() => {
+  const goHome = useCallback(() => setScreen({ name: 'home' }), [])
+  const openSong = useCallback((songId: number) => setScreen({ name: 'setup', songId, skip: [] }), [])
+
+  const backToGuest = () => {
     setAccount(null)
-    setSave((prev) => ({ ...loadSave(), settings: prev.settings }))
-  }, [])
+    setHistory(loadHistory())
+    setKeyStats(loadKeyStats())
+    goHome()
+  }
 
   const signIn = async (mode: 'login' | 'register', username: string, password: string) => {
     await (mode === 'login' ? api.login(username, password) : api.register(username, password))
     await loadAccount()
-    setPanel(null)
     setNotice('')
-    setScreen({ name: 'workshop' })
+    goHome()
   }
 
   const signOut = async () => {
     await api.logout().catch(() => undefined)
     backToGuest()
-    setPanel(null)
-    setScreen({ name: 'workshop' })
   }
 
-  const startRepair = useCallback(
-    (mission: MissionId, level: number, avoid?: string) => {
-      const passage = pickPassage(getMission(mission).levels[level - 1], save.profile, avoid)
-      setScreen({ name: 'repair', mission, level, passage, run: Date.now() })
-    },
-    [save.profile],
-  )
-
-  const finishRepair = useCallback(
-    (result: RepairResult) => {
-      if (screen.name !== 'repair') return
-      const mission = getMission(screen.mission)
-      const level = mission.levels[screen.level - 1]
-      const { metrics, repaired, timeLeft, passage, correctCharacters } = result
-      const xp = computeXp(metrics, repaired, screen.level, timeLeft)
-      const stars = computeStars(metrics, repaired, level.targetWpm)
-      const progress = save.missions[mission.id] ?? { level: 1, bestStars: 0, bestWpm: 0, repairs: 0 }
-      // The adaptive engine works from the player's current recommended level for this mission.
-      const decision = nextLevel(Math.max(progress.level, screen.level), mission.levels.length, metrics, level, repaired)
-      const profile = updateProfile(save.profile, metrics)
-      const rankUp = rankFor(save.xp + xp).rank > rankFor(save.xp).rank
-
-      // Optimistic update; for accounts the server's recomputed result replaces it below.
-      setSave((prev) => ({
-        ...prev,
-        xp: prev.xp + xp,
-        profile,
-        missions: {
-          ...prev.missions,
-          [mission.id]: {
-            level: decision.level,
-            bestStars: Math.max(progress.bestStars, stars),
-            bestWpm: repaired ? Math.max(progress.bestWpm, metrics.wpm) : progress.bestWpm,
-            repairs: progress.repairs + (repaired ? 1 : 0),
-          },
-        },
-        history: [
-          ...prev.history,
-          { at: Date.now(), mission: mission.id, level: screen.level, wpm: metrics.wpm, accuracy: metrics.accuracy, consistency: metrics.consistency, repaired, xp, stars },
-        ],
-      }))
-      if (account) {
-        api
-          .submitSession({ mission: mission.id, level: screen.level, passage, repaired, timeLeft, correctCharacters, metrics, profile })
-          .then(loadAccount)
-          .catch((error) => {
-            setNotice(`This repair was not saved to your account: ${error instanceof ApiError ? error.message : 'unknown error'}`)
-            loadAccount().catch(() => undefined)
-          })
-      }
-      if (rankUp && save.settings.sound) window.setTimeout(sfx.levelUp, 700)
-      setScreen({
-        name: 'report',
-        data: { mission, level: screen.level, metrics, repaired, xp, stars, decision, notes: sessionNotes(metrics, profile), rankUp },
-      })
-    },
-    [account, loadAccount, save, screen],
-  )
+  const deleteAccount = async () => {
+    await api.deleteAccount()
+    backToGuest()
+    setNotice('Account deleted.')
+  }
 
   const clearHistory = async () => {
-    if (!account) return setSave((prev) => ({ ...defaultSave(), settings: prev.settings }))
+    if (!account) {
+      setHistory([])
+      setKeyStats(emptyKeyStats())
+      return
+    }
     try {
       await api.clearHistory()
       await loadAccount()
@@ -155,126 +166,161 @@ function App() {
     }
   }
 
-  const deleteAccount = async () => {
-    await api.deleteAccount()
-    backToGuest()
-    setPanel(null)
-    setScreen({ name: 'workshop' })
-    setNotice('Account deleted.')
-  }
+  const finishTyping = useCallback(
+    (result: SessionResult) => {
+      if (screen.name !== 'typing') return
+      const { song, mode, audio, follow, drill, skip } = screen
+      const earlier = drill ? [] : history.filter((r) => r.songId === song.id && r.mode === mode).map((r) => r.wpm)
+      const { wpm, accuracy, consistency } = result.metrics
+      const typedKeys = sessionKeyStats(result.metrics)
+      // Shown right away; for accounts, the server's own totals replace these below.
+      setKeyStats((previous) => mergeKeyStats(previous, typedKeys))
+      if (!drill) {
+        setHistory((previous) => [
+          ...previous,
+          { at: Date.now(), songId: song.id, title: song.title, artist: song.artist, mode, wpm, accuracy, consistency, completion: result.completion },
+        ])
+      }
+      if (account) {
+        const saving = drill ? api.addKeyStats(typedKeys) : api.submitResult(song.id, mode, result, typedKeys)
+        saving.then(loadAccount).catch((error) => {
+          setNotice(`This result was not saved to your account: ${error instanceof ApiError ? error.message : 'unknown error'}`)
+          loadAccount().catch(() => undefined)
+        })
+      }
+      setScreen({
+        name: 'results',
+        data: { song, mode, result, previousBest: earlier.length ? Math.max(...earlier) : null },
+        replay: { song, mode, audio, follow, drill, skip },
+      })
+    },
+    [account, history, loadAccount, screen],
+  )
 
-  const updateSettings = (patch: Partial<Settings>) => {
-    const settings = { ...save.settings, ...patch }
-    setSave((prev) => ({ ...prev, settings }))
-    // Settings are per device, so keep the guest save's copy in sync even while signed in.
-    if (account) writeSave({ ...loadSave(), settings })
-  }
-  const goHome = useCallback(() => setScreen({ name: 'workshop' }), [])
-  const togglePanel = (name: 'settings' | 'account') => setPanel((open) => (open === name ? null : name))
-  const rank = rankFor(save.xp)
-  const inRepair = screen.name === 'repair'
+  const exitTyping = useCallback(() => {
+    if (screen.name === 'typing') setScreen(screen.drill ? { name: 'practice' } : { name: 'setup', songId: screen.song.id, skip: screen.skip })
+  }, [screen])
+
+  const audioFailed = useCallback(() => {
+    if (screen.name !== 'typing' || !screen.audio) return
+    setNotice("That recording wouldn't play, so it was removed from the list.")
+    setScreen({ name: 'setup', songId: screen.song.id, skip: [...screen.skip, screen.audio.trackId] })
+  }, [screen])
+
+  const typeAgain = useCallback(() => {
+    if (screen.name === 'results') setScreen({ name: 'typing', started: Date.now(), ...screen.replay })
+  }, [screen])
+
+  const typing = screen.name === 'typing'
+  // Colour arrives with the music: the page stays monochrome until this run of the song has started.
+  const [colouredRun, setColouredRun] = useState<number | null>(null)
+  const inColour = screen.name === 'results' || (screen.name === 'typing' && colouredRun === screen.started)
+  const playing = screen.name === 'typing' ? screen.song : screen.name === 'results' ? screen.data.song : null
+  const artUrl = useSongTheme(screen.name === 'setup' ? screen.songId : playing?.id ?? null, inColour)
+
+  useEffect(() => {
+    document.title = playing ? `♫ ${playing.title} — ${playing.artist}` : 'Chromaoke'
+  }, [playing])
+
+  const tab = (name: Screen['name']) => (screen.name === name ? 'current' : '')
 
   return (
-    <div className={`app-shell ${save.settings.reduceMotion ? 'reduce-motion' : ''}`}>
-      <div className="backdrop" aria-hidden>
-        <div className="orb one" /><div className="orb two" /><div className="grid-floor" />
-        <div className="dust">{DUST.map(([left, top, delay], i) => <i key={i} style={{ left: `${left}%`, top: `${top}%`, animationDelay: `${delay}s` }} />)}</div>
-      </div>
-
+    <div className={inColour ? 'shell in-colour' : 'shell'}>
+      <div className="atmosphere" aria-hidden />
       <header className="topbar">
-        <button className="brand" onClick={goHome} disabled={inRepair}>
-          <img src="/favicon.svg" width="30" height="30" alt="" className="brand-icon" />
-          <span>ROBOT REPAIR</span>
+        <button className="brand" onClick={goHome} disabled={typing}>
+          <Logo />
+          <span>Chromaoke</span>
         </button>
-        {!inRepair && (
-          <nav className="tabs">
-            <button className={screen.name === 'workshop' || screen.name === 'briefing' ? 'active' : ''} onClick={goHome}>Workshop</button>
-            <button className={screen.name === 'lab' ? 'active' : ''} onClick={() => setScreen({ name: 'lab' })}>Performance Lab</button>
+        {!typing && (
+          <nav>
+            <button className={tab('home')} onClick={goHome}>Home</button>
+            <button className={tab('practice')} onClick={() => setScreen({ name: 'practice' })}>Practice</button>
+            <button className={tab('leaderboards')} onClick={() => setScreen({ name: 'leaderboards' })}>Leaderboards</button>
+            <button className={tab('history')} onClick={() => setScreen({ name: 'history' })}>Progress</button>
+            <button className={tab('account')} onClick={() => setScreen({ name: 'account' })}>{account ?? 'Sign in'}</button>
           </nav>
         )}
-        <div className="technician">
-          <div className="rank-chip">
-            <span className={`status-dot ${account ? '' : 'guest'}`} />
-            <span>{account ? account.toUpperCase() : 'GUEST'} · RANK {rank.rank}</span>
-          </div>
-          <div className="xp-bar" title={`${rank.into} / ${rank.need} XP to next rank`}>
-            <i style={{ width: `${(rank.into / rank.need) * 100}%` }} />
-          </div>
-          <span className="xp">{save.xp.toLocaleString()} XP</span>
-          {!inRepair && (
-            <button className="account-btn" aria-expanded={panel === 'account'} onClick={() => togglePanel('account')}>
-              {account ? 'Account' : 'Sign in'}
-            </button>
-          )}
-          <button className="icon-btn" aria-label="Settings" aria-expanded={panel === 'settings'} onClick={() => togglePanel('settings')}>⚙</button>
-        </div>
       </header>
 
-      {panel === 'settings' && (
-        <div className="settings holo-panel" role="dialog" aria-label="Settings">
-          <Toggle label="Sound effects" checked={save.settings.sound} onChange={(v) => updateSettings({ sound: v })} />
-          <Toggle label="Glitch effects on mistakes" checked={save.settings.glitchEffects} onChange={(v) => updateSettings({ glitchEffects: v })} />
-          <Toggle label="Reduce motion" checked={save.settings.reduceMotion} onChange={(v) => updateSettings({ reduceMotion: v })} />
-          <button className="ghost-btn" onClick={() => setPanel(null)}>Done</button>
-        </div>
-      )}
-      {panel === 'account' && !inRepair && (
-        <AccountPanel username={account} onSignIn={signIn} onSignOut={signOut} onDeleteAccount={deleteAccount} onClose={() => setPanel(null)} />
-      )}
-
-      <main className="content">
+      <main>
         {notice && (
           <div className="notice" role="status">
             <span>{notice}</span>
-            <button className="link-btn" onClick={() => setNotice('')} aria-label="Dismiss">✕</button>
+            <button className="link" onClick={() => setNotice('')} aria-label="Dismiss">✕</button>
           </div>
         )}
         {connecting ? (
-          <div className="connecting">Connecting to the repair facility…</div>
+          <p className="muted">Signing you in…</p>
         ) : (
           <>
-            {screen.name === 'workshop' && <Workshop save={save} onSelect={(mission) => setScreen({ name: 'briefing', mission })} />}
-            {screen.name === 'lab' && <Lab save={save} signedIn={Boolean(account)} onClear={clearHistory} />}
-            {screen.name === 'briefing' && (
-              <Briefing
-                mission={getMission(screen.mission)}
-                progress={save.missions[screen.mission]}
-                onStart={(level) => startRepair(screen.mission, level)}
-                onBack={goHome}
-              />
-            )}
-            {screen.name === 'repair' && (
-              <RepairStation
-                key={screen.run}
-                mission={getMission(screen.mission)}
-                level={getMission(screen.mission).levels[screen.level - 1]}
-                passage={screen.passage}
-                settings={save.settings}
-                onFinish={finishRepair}
-                onAbort={() => setScreen({ name: 'briefing', mission: screen.mission })}
-              />
-            )}
-            {screen.name === 'report' && (
-              <Report
-                data={screen.data}
-                onRetry={() => startRepair(screen.data.mission.id, save.missions[screen.data.mission.id]?.level ?? screen.data.decision.level)}
+            {screen.name === 'home' && <Home
+                state={search}
+                recent={recentSongs(history)}
+                played={new Set(history.map((record) => record.songId))}
+                speed={speed}
+                speedSource={chosenSpeed !== null ? 'chosen' : historySpeed !== null ? 'history' : 'default'}
+                canFollowHistory={historySpeed !== null}
+                onChooseSpeed={chooseSpeed}
+                streak={streakDays(history)}
+                onLeaderboards={() => setScreen({ name: 'leaderboards' })}
+                onChange={setSearch}
+                onPick={openSong}
+              />}
+            {screen.name === 'practice' && (
+              <Practice
+                stats={keyStats}
+                speed={speed}
+                onPick={openSong}
                 onHome={goHome}
+                onDrill={(drill) => setScreen({ name: 'typing', started: Date.now(), song: drill, mode: 'text', audio: null, follow: false, drill: true, skip: [] })}
+              />
+            )}
+            {screen.name === 'leaderboards' && <Leaderboards username={account} onPick={openSong} />}
+            {screen.name === 'history' && <History history={history} keyStats={keyStats} signedIn={Boolean(account)} onPick={openSong} onClear={clearHistory} />}
+            {screen.name === 'account' && (
+              <AccountPanel username={account} onSignIn={signIn} onSignOut={signOut} onDeleteAccount={deleteAccount} onClose={goHome} />
+            )}
+            {screen.name === 'setup' && (
+              <Setup
+                key={`${screen.songId}-${screen.skip.length}`}
+                songId={screen.songId}
+                artUrl={artUrl}
+                username={account}
+                attempts={history.filter((record) => record.songId === screen.songId)}
+                speed={speed}
+                skip={screen.skip}
+                onBack={goHome}
+                onStart={(song, mode, audio, follow) => setScreen({ name: 'typing', started: Date.now(), song, mode, audio, follow, drill: false, skip: screen.skip })}
+              />
+            )}
+            {screen.name === 'typing' && (
+              <Typing
+                key={screen.started}
+                song={screen.song}
+                mode={screen.mode}
+                audio={screen.audio}
+                follow={screen.follow}
+                artUrl={artUrl}
+                onStarted={() => setColouredRun(screen.started)}
+                onFinish={finishTyping}
+                onExit={exitTyping}
+                onAudioFailed={audioFailed}
+              />
+            )}
+            {screen.name === 'results' && (
+              <Results
+                data={screen.data}
+                onAgain={typeAgain}
+                onNewSong={screen.replay.drill ? () => setScreen({ name: 'practice' }) : goHome}
+                onLeaderboard={screen.replay.drill ? null : () => openSong(screen.data.song.id)}
+                onSignIn={account || screen.replay.drill ? null : () => setScreen({ name: 'account' })}
               />
             )}
           </>
         )}
       </main>
     </div>
-  )
-}
-
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
-  return (
-    <label className="toggle">
-      <span>{label}</span>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-      <i aria-hidden />
-    </label>
   )
 }
 

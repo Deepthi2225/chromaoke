@@ -1,8 +1,8 @@
-"""Database models (vision Section 8: users, sessions, missions, history).
+"""Database models: users, sign-in tokens and per-song results.
 
 DATABASE_URL selects the database:
-  - unset:      SQLite file web/backend/robot_repair.db (local development)
-  - PostgreSQL: postgresql+psycopg://robot:robot@localhost:5432/robot_repair
+  - unset:      SQLite file web/backend/lyric_typer.db (local development)
+  - PostgreSQL: postgresql+psycopg://lyrics:lyrics@localhost:5432/lyric_typer
 """
 
 import os
@@ -10,10 +10,10 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, create_engine
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
-DEFAULT_URL = f"sqlite:///{Path(__file__).resolve().parent / 'robot_repair.db'}"
+DEFAULT_URL = f"sqlite:///{Path(__file__).resolve().parent / 'lyric_typer.db'}"
 
 
 def now() -> datetime:
@@ -30,14 +30,11 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(24), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
-    xp: Mapped[int] = mapped_column(Integer, default=0)
-    # Aggregated typing profile (severity scores, per-key and per-pair counts). No raw text.
-    profile: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
-    sessions: Mapped[list["TypingSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    progress: Mapped[list["MissionProgress"]] = relationship(cascade="all, delete-orphan")
+    results: Mapped[list["SongResult"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     tokens: Mapped[list["AuthToken"]] = relationship(cascade="all, delete-orphan")
+    key_totals: Mapped[list["KeyTotals"]] = relationship(cascade="all, delete-orphan")
 
 
 class AuthToken(Base):
@@ -49,41 +46,38 @@ class AuthToken(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
-class TypingSession(Base):
-    """One repair attempt. `features` is the per-session feature set the Phase 4 ML model trains on."""
+class SongResult(Base):
+    """One attempt at one song. Holds numbers and the song's name only, never the lyrics or typed text."""
 
-    __tablename__ = "typing_sessions"
+    __tablename__ = "song_results"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
-    mission: Mapped[str] = mapped_column(String(16))
-    level: Mapped[int] = mapped_column(Integer)
-    repaired: Mapped[bool] = mapped_column(Boolean)
+    song_id: Mapped[int] = mapped_column(Integer, index=True)
+    title: Mapped[str] = mapped_column(String(300))
+    artist: Mapped[str] = mapped_column(String(300))
+    mode: Mapped[str] = mapped_column(String(8))
     wpm: Mapped[int] = mapped_column(Integer)
     accuracy: Mapped[float] = mapped_column(Float)
     consistency: Mapped[int] = mapped_column(Integer)
     burst_wpm: Mapped[int] = mapped_column(Integer)
+    completion: Mapped[int] = mapped_column(Integer)
     elapsed_seconds: Mapped[float] = mapped_column(Float)
     keystrokes: Mapped[int] = mapped_column(Integer)
     errors: Mapped[int] = mapped_column(Integer)
     backspaces: Mapped[int] = mapped_column(Integer)
-    xp: Mapped[int] = mapped_column(Integer)
-    stars: Mapped[int] = mapped_column(Integer)
-    features: Mapped[dict] = mapped_column(JSON)
 
-    user: Mapped[User] = relationship(back_populates="sessions")
+    user: Mapped[User] = relationship(back_populates="results")
 
 
-class MissionProgress(Base):
-    __tablename__ = "mission_progress"
+class KeyTotals(Base):
+    """How often a user has aimed at and missed each letter and letter pair. Counts only, never typed text."""
+
+    __tablename__ = "key_totals"
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    mission: Mapped[str] = mapped_column(String(16), primary_key=True)
-    level: Mapped[int] = mapped_column(Integer, default=1)
-    best_stars: Mapped[int] = mapped_column(Integer, default=0)
-    best_wpm: Mapped[int] = mapped_column(Integer, default=0)
-    repairs: Mapped[int] = mapped_column(Integer, default=0)
+    stats: Mapped[dict] = mapped_column(JSON)
 
 
 class Database:

@@ -1,23 +1,31 @@
-@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+/* Registered as colours so the whole palette can fade when the song changes (see engine/theme.ts). */
+@property --bg { syntax: '<color>'; inherits: true; initial-value: #121110; }
+@property --bg-raised { syntax: '<color>'; inherits: true; initial-value: #1b1a18; }
+@property --bg-hover { syntax: '<color>'; inherits: true; initial-value: #262422; }
+@property --line { syntax: '<color>'; inherits: true; initial-value: #35332f; }
+@property --ink { syntax: '<color>'; inherits: true; initial-value: #ece7de; }
+@property --ink-2 { syntax: '<color>'; inherits: true; initial-value: #aba69d; }
+@property --ink-3 { syntax: '<color>'; inherits: true; initial-value: #75716a; }
+@property --accent { syntax: '<color>'; inherits: true; initial-value: #c9a45c; }
+@property --accent-ink { syntax: '<color>'; inherits: true; initial-value: #121110; }
+@property --sung { syntax: '<color>'; inherits: true; initial-value: #e8cf9a; }
+@property --glow { syntax: '<color>'; inherits: true; initial-value: #4a3a1c; }
+@property --glow-2 { syntax: '<color>'; inherits: true; initial-value: #2e2513; }
+@property --glow-3 { syntax: '<color>'; inherits: true; initial-value: #24221f; }
 
-/* Colour palette from the vision document, Section 6.2 */
 :root {
-  --bg: #0b1020;
-  --bg-2: #151d30;
-  --bg-3: #1c2740;
-  --line: #2a3a58;
-  --accent: #36d9f5;
-  --accent-2: #a78bfa;
-  --success: #54e6a5;
-  --warning: #ffca70;
-  --error: #ff647c;
-  --ink: #eef4ff;
-  --ink-2: #a9b6cc;
-  --ink-3: #6f7f9c;
-  --mono: 'JetBrains Mono', ui-monospace, monospace;
-  --display: 'Chakra Petch', system-ui, sans-serif;
+  --good: #8fd19e;
+  --bad: #ff7a6b;
+  /* The brand is brass, in three tones: the logo and the home headline. Other colours wait for a song. */
+  --brand-1: #ecd6a4;
+  --brand-2: #c9a45c;
+  --brand-3: #94702f;
+  --display: 'Bricolage Grotesque', 'Geist', system-ui, sans-serif;
+  --sans: 'Geist', system-ui, sans-serif;
+  --mono: 'Geist Mono', ui-monospace, monospace;
 
-  font-family: var(--display);
+  transition: --bg 1.6s, --bg-raised 1.6s, --bg-hover 1.6s, --line 1.6s, --ink 1.6s, --ink-2 1.6s, --ink-3 1.6s, --accent 1.6s, --accent-ink 1.6s, --sung 1.6s, --glow 1.6s, --glow-2 1.6s, --glow-3 1.6s;
+  font-family: var(--sans);
   color: var(--ink);
   background: var(--bg);
   color-scheme: dark;
@@ -28,5 +36,9 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; background: var(--bg); }
-button { font: inherit; color: inherit; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--sung); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root { transition: none; }
+}

@@ -16,7 +16,7 @@ export function TrendChart({ values, labels, unit, color, title, height = 160, m
   const [hover, setHover] = useState<number | null>(null)
   const width = 520
   const pad = { l: 34, r: 12, t: 12, b: 22 }
-  if (!values.length) return <div className="chart-empty">No repairs logged yet.</div>
+  if (!values.length) return <div className="chart-empty">Nothing to chart yet.</div>
 
   const lo = min ?? Math.max(0, Math.floor(Math.min(...values) * 0.85))
   const hi = Math.max(lo + 1, Math.min(max ?? Infinity, Math.ceil(Math.max(...values) * 1.08)))
@@ -40,7 +40,7 @@ export function TrendChart({ values, labels, unit, color, title, height = 160, m
           {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={pad.t} y2={height - pad.b} className="chart-crosshair" />}
           {values.map((v, i) => (
             <g key={i}>
-              {(i === values.length - 1 || i === hover) && <circle cx={x(i)} cy={y(v)} r="4.5" fill={color} stroke="var(--bg-2)" strokeWidth="2" />}
+              {(i === values.length - 1 || i === hover) && <circle cx={x(i)} cy={y(v)} r="4.5" fill={color} stroke="var(--bg)" strokeWidth="2" />}
               <rect
                 x={x(i) - (width - pad.l - pad.r) / Math.max(values.length, 1) / 2}
                 y={0}

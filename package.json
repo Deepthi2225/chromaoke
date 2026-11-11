@@ -1,5 +1,5 @@
 {
-  "name": "robot-repair",
+  "name": "lyric-typer",
   "private": true,
   "scripts": {
     "dev": "npm --prefix web run dev",

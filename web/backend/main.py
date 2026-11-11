@@ -1,31 +1,36 @@
-"""Robot Repair API (vision Section 8).
+"""Chromaoke API.
 
 Run from the repository root:
     uvicorn main:app --reload --app-dir web/backend
 """
 
-import json
 import re
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
-from datetime import UTC
-from typing import Annotated
+from datetime import UTC, timedelta
+from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+import httpx
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 import auth
+import artwork
+import audius
+import saavn
 import scoring
-from db import AuthToken, Database, MissionProgress, TypingSession, User, now
+from db import AuthToken, Database, KeyTotals, SongResult, User, now
+from lyrics import LyricsClient, LyricsUnavailable, SongNotFound
 
 USERNAME = re.compile(r"^[A-Za-z0-9_]{3,24}$")
-MAX_JSON_BYTES = 64_000
 HISTORY_LIMIT = 200
+ART_CACHE_SIZE = 512
+LEADERBOARD_SIZE = 10
+LEADERBOARD_MIN_COMPLETION = 90  # percent; stops a fast first verse from topping the board
+MAX_SESSION_SECONDS = 4 * 3600
 
-
-# ---------- request models ----------
 
 class Credentials(BaseModel):
     username: str
@@ -39,63 +44,60 @@ class Credentials(BaseModel):
         return value.lower()
 
 
-def _small_json(value: dict | None) -> dict | None:
-    if value is not None and len(json.dumps(value)) > MAX_JSON_BYTES:
-        raise ValueError("payload too large")
-    return value
+LETTER = re.compile(r"^[a-z]$")
+LETTER_PAIR = re.compile(r"^[a-z]{2}$")
+MAX_TALLY = 1_000_000
 
 
-class SessionIn(BaseModel):
-    mission: str
-    level: int = Field(ge=1)
-    passage: str
-    repaired: bool
-    time_left: int = Field(ge=0)
-    elapsed_seconds: float = Field(gt=0)
+class KeyStatsIn(BaseModel):
+    """Per letter and per letter pair: [times aimed at, times missed]."""
+
+    keys: dict[str, tuple[int, int]] = Field(default_factory=dict)
+    pairs: dict[str, tuple[int, int]] = Field(default_factory=dict)
+
+    @field_validator("keys", "pairs")
+    @classmethod
+    def check_tallies(cls, value: dict, info) -> dict:
+        name = LETTER if info.field_name == "keys" else LETTER_PAIR
+        for key, (attempts, errors) in value.items():
+            if not name.match(key) or not 0 <= errors <= attempts <= MAX_TALLY:
+                raise ValueError("invalid key statistics")
+        return value
+
+
+class ResultIn(BaseModel):
+    song_id: int
+    mode: Literal["audio", "both", "text"]
+    elapsed_seconds: float = Field(gt=0, le=MAX_SESSION_SECONDS)
     correct_characters: int = Field(ge=0)
     keystrokes: int = Field(ge=0, description="Character keystrokes, excluding Backspace")
     errors: int = Field(ge=0, description="Wrong keystrokes, even if fixed later")
     backspaces: int = Field(ge=0)
     consistency: int = Field(ge=0, le=100)
     burst_wpm: int = Field(ge=0, le=1000)
-    # Aggregated per-session features (per-key and per-pair counts, fatigue signals).
-    features: dict = Field(default_factory=dict)
-    # Typing profile as updated by the client-side analyzer (moves server-side in Phase 4).
-    profile: dict | None = None
-
-    @field_validator("features", "profile")
-    @classmethod
-    def limit_size(cls, value: dict | None) -> dict | None:
-        return _small_json(value)
+    completion: int = Field(ge=0, le=100, description="Percent of the song's words attempted")
+    key_stats: KeyStatsIn | None = None
 
 
-class PassageCheck(BaseModel):
-    text: str
-
-
-class ScoreRequest(BaseModel):
-    correct_characters: int = Field(ge=0)
-    keystrokes: int = Field(ge=0)
-    errors: int = Field(ge=0)
-    elapsed_seconds: float = Field(gt=0)
-    repaired: bool
-    level: int = Field(ge=1, le=3)
-    time_left: int = Field(ge=0)
-    target_wpm: int = Field(gt=0)
-
-
-# ---------- app ----------
-
-def create_app(database_url: str | None = None) -> FastAPI:
+def create_app(
+    database_url: str | None = None,
+    http_client: httpx.Client | None = None,
+) -> FastAPI:
     database = Database(database_url)
+    http = http_client or httpx.Client(headers={"User-Agent": "lyric-typer/1.0"})
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         database.create_all()
         yield
+        if http_client is None:
+            http.close()
 
-    app = FastAPI(title="Robot Repair API", version="0.3.0", lifespan=lifespan)
+    app = FastAPI(title="Chromaoke API", version="1.0.0", lifespan=lifespan)
     app.state.db = database
+    app.state.http = http
+    app.state.lyrics = LyricsClient(http)
+    app.state.art = {}
     _routes(app)
     return app
 
@@ -127,35 +129,57 @@ def _issue_token(db: Session, user: User) -> str:
     return token
 
 
-def _record(s: TypingSession) -> dict:
-    created = s.created_at.replace(tzinfo=s.created_at.tzinfo or UTC)
+def _record(result: SongResult) -> dict:
+    created = result.created_at.replace(tzinfo=result.created_at.tzinfo or UTC)
     return {
         "at": int(created.timestamp() * 1000),
-        "mission": s.mission,
-        "level": s.level,
-        "wpm": s.wpm,
-        "accuracy": s.accuracy,
-        "consistency": s.consistency,
-        "repaired": s.repaired,
-        "xp": s.xp,
-        "stars": s.stars,
+        "songId": result.song_id,
+        "title": result.title,
+        "artist": result.artist,
+        "mode": result.mode,
+        "wpm": result.wpm,
+        "accuracy": result.accuracy,
+        "consistency": result.consistency,
+        "completion": result.completion,
     }
 
 
-def _save_data(db: Session, user: User) -> dict:
-    recent = db.scalars(
-        select(TypingSession).where(TypingSession.user_id == user.id).order_by(TypingSession.id.desc()).limit(HISTORY_LIMIT)
+def _best_per_typist(db: Session, wanted: list) -> list[dict]:
+    """The top typists among the matching results, each counted once by their fastest run."""
+    rows = db.execute(
+        select(User.username, SongResult.wpm, SongResult.accuracy, SongResult.mode, SongResult.song_id, SongResult.title)
+        .join(User, User.id == SongResult.user_id)
+        .where(*wanted)
+        .order_by(SongResult.wpm.desc(), SongResult.accuracy.desc(), SongResult.id)
+        .limit(500)
     ).all()
-    progress = db.scalars(select(MissionProgress).where(MissionProgress.user_id == user.id)).all()
-    return {
-        "username": user.username,
-        "xp": user.xp,
-        "missions": {
-            p.mission: {"level": p.level, "bestStars": p.best_stars, "bestWpm": p.best_wpm, "repairs": p.repairs} for p in progress
-        },
-        "history": [_record(s) for s in reversed(recent)],
-        "profile": user.profile,
-    }
+    best: dict[str, dict] = {}
+    for username, wpm, accuracy, mode, song_id, title in rows:
+        best.setdefault(username, {"username": username, "wpm": wpm, "accuracy": accuracy, "mode": mode, "songId": song_id, "title": title})
+    return list(best.values())[:LEADERBOARD_SIZE]
+
+
+EMPTY_KEY_STATS = {"keys": {}, "pairs": {}}
+
+
+def _add_key_stats(db: Session, user: User, added: KeyStatsIn) -> None:
+    row = db.get(KeyTotals, user.id) or KeyTotals(user_id=user.id, stats=EMPTY_KEY_STATS)
+    totals = {group: dict(row.stats.get(group, {})) for group in ("keys", "pairs")}
+    for group, tallies in (("keys", added.keys), ("pairs", added.pairs)):
+        for key, (attempts, errors) in tallies.items():
+            before = totals[group].get(key, [0, 0])
+            totals[group][key] = [before[0] + attempts, before[1] + errors]
+    row.stats = totals  # a new dict, so the JSON column is seen as changed
+    db.add(row)
+
+
+def _load_song(request: Request, song_id: int) -> dict:
+    try:
+        return request.app.state.lyrics.song(song_id)
+    except SongNotFound:
+        raise HTTPException(404, "No lyrics found for that song") from None
+    except LyricsUnavailable:
+        raise HTTPException(502, "The lyrics service is unavailable right now") from None
 
 
 def _routes(app: FastAPI) -> None:
@@ -188,15 +212,16 @@ def _routes(app: FastAPI) -> None:
 
     @app.get("/api/me")
     def me(db: DB, user: CurrentUser) -> dict:
-        return _save_data(db, user)
+        recent = db.scalars(
+            select(SongResult).where(SongResult.user_id == user.id).order_by(SongResult.id.desc()).limit(HISTORY_LIMIT)
+        ).all()
+        totals = db.get(KeyTotals, user.id)
+        return {"username": user.username, "history": [_record(r) for r in reversed(recent)], "keyStats": totals.stats if totals else EMPTY_KEY_STATS}
 
     @app.delete("/api/me/history", status_code=204)
     def clear_history(db: DB, user: CurrentUser) -> None:
-        """Vision Section 12: users control their typing history."""
-        db.execute(delete(TypingSession).where(TypingSession.user_id == user.id))
-        db.execute(delete(MissionProgress).where(MissionProgress.user_id == user.id))
-        user.xp = 0
-        user.profile = None
+        db.execute(delete(SongResult).where(SongResult.user_id == user.id))
+        db.execute(delete(KeyTotals).where(KeyTotals.user_id == user.id))
         db.commit()
 
     @app.delete("/api/me", status_code=204)
@@ -204,65 +229,99 @@ def _routes(app: FastAPI) -> None:
         db.delete(user)
         db.commit()
 
-    # ----- sessions -----
+    @app.post("/api/me/keys", status_code=204)
+    def add_key_stats(body: KeyStatsIn, db: DB, user: CurrentUser) -> None:
+        """Key statistics from a practice drill, which has no result of its own."""
+        _add_key_stats(db, user, body)
+        db.commit()
 
-    @app.post("/api/sessions", status_code=201)
-    def submit_session(body: SessionIn, db: DB, user: CurrentUser) -> dict:
-        level = scoring.get_level(body.mission, body.level)
-        if level is None:
-            raise HTTPException(422, "Unknown mission or level")
-        if body.passage not in level["passages"]:
-            raise HTTPException(422, "Passage is not part of this level")
-        length = len(body.passage)
+    # ----- songs -----
+
+    @app.get("/api/songs/search")
+    def search_songs(request: Request, q: Annotated[str, Query(min_length=2, max_length=120)]) -> dict:
+        try:
+            return {"results": request.app.state.lyrics.search(q)}
+        except (LyricsUnavailable, SongNotFound):
+            raise HTTPException(502, "The lyrics service is unavailable right now") from None
+
+    @app.get("/api/songs/{song_id}")
+    def get_song(request: Request, song_id: int) -> dict:
+        return _load_song(request, song_id)
+
+    @app.get("/api/songs/{song_id}/audio")
+    def get_audio(request: Request, song_id: int) -> dict:
+        song = _load_song(request, song_id)
+        wanted = (request.app.state.http, song["title"], song["artist"], song["duration"])
+        try:
+            found, failed = audius.find_tracks(*wanted), False
+        except audius.AudiusUnavailable:
+            found, failed = [], True
+        found += saavn.find_tracks(*wanted)
+        # Whichever source has the recording closest in length to the timed lyrics goes first.
+        found.sort(key=lambda track: abs(track["duration"] - song["duration"]))
+        return {"candidates": found, "error": failed and not found}
+
+    @app.get("/api/songs/{song_id}/art")
+    def get_art(request: Request, song_id: int) -> dict:
+        known = request.app.state.art
+        if song_id not in known:
+            song = _load_song(request, song_id)
+            if len(known) >= ART_CACHE_SIZE:
+                known.clear()
+            known[song_id] = artwork.find(request.app.state.http, song["title"], song["artist"], song["duration"])
+        return {"url": known[song_id]}
+
+    @app.get("/api/songs/{song_id}/leaderboard")
+    def leaderboard(song_id: int, db: DB, mode: Literal["audio", "both", "text"] | None = None, today: bool = False) -> dict:
+        """Each signed-in typist's best near-complete run of this song: in one mode or all, ever or today (UTC)."""
+        wanted = [SongResult.song_id == song_id, SongResult.completion >= LEADERBOARD_MIN_COMPLETION]
+        if mode:
+            wanted.append(SongResult.mode == mode)
+        if today:
+            wanted.append(SongResult.created_at >= now().replace(hour=0, minute=0, second=0, microsecond=0))
+        return {"entries": _best_per_typist(db, wanted)}
+
+    @app.get("/api/leaderboards")
+    def leaderboards(db: DB) -> dict:
+        """Site-wide boards: each typist's fastest near-complete run, and the songs played most in the last week."""
+        played = func.count().label("plays")
+        songs = db.execute(
+            select(SongResult.song_id, func.max(SongResult.title), func.max(SongResult.artist), played)
+            .where(SongResult.created_at >= now() - timedelta(days=7))
+            .group_by(SongResult.song_id)
+            .order_by(played.desc(), SongResult.song_id)
+            .limit(LEADERBOARD_SIZE)
+        ).all()
+        return {
+            "typists": _best_per_typist(db, [SongResult.completion >= LEADERBOARD_MIN_COMPLETION]),
+            "songs": [{"songId": song_id, "title": title, "artist": artist, "plays": plays} for song_id, title, artist, plays in songs],
+        }
+
+    # ----- results -----
+
+    @app.post("/api/results", status_code=201)
+    def submit_result(request: Request, body: ResultIn, db: DB, user: CurrentUser) -> dict:
+        song = _load_song(request, body.song_id)
+        if not song["typeable"]:
+            raise HTTPException(422, "This song's lyrics can't be typed on a standard keyboard")
+        wpm, accuracy = scoring.wpm_and_accuracy(body.correct_characters, body.keystrokes, body.errors, body.elapsed_seconds)
         plausible = (
             body.errors <= body.keystrokes
-            and body.correct_characters <= min(length, body.keystrokes - body.errors)
-            and (not body.repaired or body.keystrokes >= length)
-            and body.elapsed_seconds <= level["timeLimit"] + 2
-            # time_left must match the elapsed time (it earns bonus XP).
-            and body.time_left <= max(0, level["timeLimit"] - int(body.elapsed_seconds)) + 1
+            and body.correct_characters <= min(song["length"], body.keystrokes - body.errors)
+            and wpm <= scoring.MAX_PLAUSIBLE_WPM
         )
-        wpm, accuracy = scoring.wpm_and_accuracy(body.correct_characters, body.keystrokes, body.errors, body.elapsed_seconds)
-        if not plausible or wpm > scoring.MAX_PLAUSIBLE_WPM:
-            raise HTTPException(422, "Session data is inconsistent")
-
-        xp, stars = scoring.rewards(wpm, accuracy, body.repaired, body.level, body.time_left, level["targetWpm"])
-        progress = db.get(MissionProgress, (user.id, body.mission)) or MissionProgress(
-            user_id=user.id, mission=body.mission, level=1, best_stars=0, best_wpm=0, repairs=0
+        if not plausible:
+            raise HTTPException(422, "Result data is inconsistent")
+        result = SongResult(
+            user_id=user.id, song_id=body.song_id, title=song["title"][:300], artist=song["artist"][:300], mode=body.mode,
+            wpm=wpm, accuracy=accuracy, consistency=body.consistency, burst_wpm=body.burst_wpm, completion=body.completion,
+            elapsed_seconds=body.elapsed_seconds, keystrokes=body.keystrokes, errors=body.errors, backspaces=body.backspaces,
         )
-        decision = scoring.next_level(
-            max(progress.level, body.level), len(scoring.MISSIONS[body.mission]["levels"]), wpm, accuracy, level["targetWpm"], body.repaired
-        )
-        progress.level = decision["level"]
-        progress.best_stars = max(progress.best_stars, stars)
-        if body.repaired:
-            progress.best_wpm = max(progress.best_wpm, wpm)
-            progress.repairs += 1
-        db.add(progress)
-
-        session = TypingSession(
-            user_id=user.id, mission=body.mission, level=body.level, repaired=body.repaired, wpm=wpm, accuracy=accuracy,
-            consistency=body.consistency, burst_wpm=body.burst_wpm, elapsed_seconds=body.elapsed_seconds,
-            keystrokes=body.keystrokes, errors=body.errors, backspaces=body.backspaces, xp=xp, stars=stars, features=body.features,
-        )
-        db.add(session)
-        user.xp += xp
-        if body.profile is not None:
-            user.profile = body.profile
+        db.add(result)
+        if body.key_stats:
+            _add_key_stats(db, user, body.key_stats)
         db.commit()
-        return {"record": _record(session), "wpm": wpm, "accuracy": accuracy, "xp": xp, "stars": stars, "decision": decision}
-
-    # ----- stateless helpers -----
-
-    @app.post("/api/score")
-    def score(body: ScoreRequest) -> dict:
-        wpm, accuracy = scoring.wpm_and_accuracy(body.correct_characters, body.keystrokes, body.errors, body.elapsed_seconds)
-        xp, stars = scoring.rewards(wpm, accuracy, body.repaired, body.level, body.time_left, body.target_wpm)
-        return {"wpm": wpm, "accuracy": accuracy, "xp": xp, "stars": stars}
-
-    @app.post("/api/passages/validate")
-    def passages_validate(check: PassageCheck) -> dict:
-        return scoring.validate_passage(check.text)
+        return {"record": _record(result)}
 
 
 app = create_app()
